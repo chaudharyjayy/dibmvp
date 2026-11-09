@@ -1,4 +1,5 @@
 import Link from "next/link";
+import MurmurationWordmark from "@/components/ui/murmuration-wordmark";
 import AuthPanel from "./AuthPanel";
 
 const steps = [
@@ -43,54 +44,64 @@ const bullets = [
 export default function LandingPage() {
   return (
     <main className="flex-1">
-      {/* Nav */}
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
-        <span className="text-sm font-semibold tracking-tight">
-          Drug-in-Body Simulator
-        </span>
-        <nav className="flex items-center gap-6 text-sm text-zinc-500 dark:text-zinc-400">
-          <a href="#how" className="hover:text-zinc-900 dark:hover:text-zinc-100">
-            How it works
-          </a>
-          <a href="#privacy" className="hover:text-zinc-900 dark:hover:text-zinc-100">
-            Privacy
-          </a>
-        </nav>
-      </header>
+      {/* Hero — the flock forms the brand while the copy and sign-in ride above */}
+      <MurmurationWordmark
+        word="dib"
+        preset="paper"
+        height="100svh"
+        reeds
+        interactive
+      >
+        <div className="flex h-full flex-col">
+          <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-6">
+            <span className="text-sm font-semibold tracking-tight">
+              Drug-in-Body Simulator
+            </span>
+            <nav className="flex items-center gap-6 text-sm text-zinc-500">
+              <a href="#how" className="hover:text-zinc-900">
+                How it works
+              </a>
+              <a href="#privacy" className="hover:text-zinc-900">
+                Privacy
+              </a>
+            </nav>
+          </header>
 
-      {/* Hero */}
-      <section className="mx-auto max-w-5xl px-6 pt-10 pb-16 sm:pt-20 sm:pb-24">
-        <div className="grid gap-10 sm:grid-cols-2 sm:items-center">
-          <div>
-            <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.1]">
-              See the curve, not just the dose.
-            </h1>
-            <p className="mt-5 text-lg leading-8 text-zinc-500 dark:text-zinc-400">
-              Enter a dose and when you took it — the simulator draws how its
-              concentration in the body rises and falls, using standard
-              pharmacokinetic models on your own numbers.
-            </p>
-            <p className="mt-3 text-sm text-zinc-400 dark:text-zinc-500">
-              For information only — not a medical tool. Nothing here is advice.
-            </p>
-            <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
-              <span className="rounded-full border border-zinc-200 dark:border-zinc-800 px-3 py-1 text-zinc-500 dark:text-zinc-400">
-                Runs entirely on your inputs
-              </span>
-              <span className="rounded-full border border-zinc-200 dark:border-zinc-800 px-3 py-1 text-zinc-500 dark:text-zinc-400">
-                Test suite on every rule
-              </span>
+          <div className="mx-auto grid w-full max-w-5xl flex-1 content-center gap-10 px-6 pb-16 sm:grid-cols-2 sm:items-center">
+            <div>
+              <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.1]">
+                See the curve, not just the dose.
+              </h1>
+              <p className="mt-5 text-lg leading-8 text-zinc-600">
+                Enter a dose and when you took it — the simulator draws how its
+                concentration in the body rises and falls, using standard
+                pharmacokinetic models on your own numbers.
+              </p>
+              <p className="mt-3 text-sm text-zinc-500">
+                For information only — not a medical tool. Nothing here is advice.
+              </p>
+              <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
+                <span className="rounded-full border border-zinc-400/40 px-3 py-1 text-zinc-600">
+                  Runs entirely on your inputs
+                </span>
+                <span className="rounded-full border border-zinc-400/40 px-3 py-1 text-zinc-600">
+                  Test suite on every rule
+                </span>
+              </div>
+            </div>
+
+            <div className="text-sm">
+              <p className="mb-3 text-zinc-600">
+                Create an account to save reports — sign in first, the simulator
+                ships next.
+              </p>
+              <div data-interactive>
+                <AuthPanel />
+              </div>
             </div>
           </div>
-          <div className="text-sm">
-            <p className="mb-3 text-zinc-500 dark:text-zinc-400">
-              Create an account to save reports — sign in first, the simulator
-              ships next.
-            </p>
-            <AuthPanel />
-          </div>
         </div>
-      </section>
+      </MurmurationWordmark>
 
       {/* How it works */}
       <section
@@ -169,7 +180,10 @@ export default function LandingPage() {
             <Link href="/" className="underline hover:text-zinc-600">
               Drug-in-Body Simulator
             </Link>{" "}
-            · open-source engine · report data deletable at any time
+            · open-source engine · report data deletable at any time ·{" "}
+            <Link href="/demo" className="underline hover:text-zinc-600">
+              murmuration preview
+            </Link>
           </p>
         </div>
       </footer>
