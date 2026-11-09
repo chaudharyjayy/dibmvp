@@ -58,6 +58,9 @@ export default function LandingPage() {
               Drug-in-Body Simulator
             </span>
             <nav className="flex items-center gap-6 text-sm text-zinc-500">
+              <Link href="/simulator" className="font-medium text-emerald-700 dark:text-emerald-400 hover:underline">
+                Simulator
+              </Link>
               <a href="#how" className="hover:text-zinc-900">
                 How it works
               </a>
@@ -81,9 +84,12 @@ export default function LandingPage() {
                 For information only — not a medical tool. Nothing here is advice.
               </p>
               <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
-                <span className="rounded-full border border-zinc-400/40 px-3 py-1 text-zinc-600">
-                  Runs entirely on your inputs
-                </span>
+                <Link
+                  href="/simulator"
+                  className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                >
+                  Try the simulator
+                </Link>
                 <span className="rounded-full border border-zinc-400/40 px-3 py-1 text-zinc-600">
                   Test suite on every rule
                 </span>
