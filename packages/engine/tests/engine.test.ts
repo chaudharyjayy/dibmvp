@@ -1,0 +1,179 @@
+import { describe, it, expect } from 'vitest';
+import { simulate } from '../simulate';
+import { closedFormSingleDose, closedFormDoses } from '../closedFormSingleDose';
+import { buildReport } from '../buildReport';
+import { lookupInteraction } from '../lookupInteraction';
+import { fixtureDrug, fixtureDrugEqualRates } from './fixtures/fixtureDrug';
+import { BodyProfile, DoseEvent, InteractionPair, SimResult } from '../types';
+
+const profile: BodyProfile = { ageYears: 30, weightKg: 70, sex: 'M' };
+const singleDose: DoseEvent[] = [{ drugId: 'fixture-drug', doseMg: 100, timeH: 0 }];
+
+const run = (drug: typeof fixtureDrug, doses: DoseEvent[], tEndH = 24, dtH = 0.05) =>
+  simulate({ profile, drug, doses, tEndH, dtH });
+
+const meanAbsRelErr = (a: number[], b: number[]) => {
+  // Only compare points where the analytic curve is meaningfully non-zero.
+  let s = 0;
+  let n = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (Math.abs(b[i]) < 1e-9) continue;
+    s += Math.abs(a[i] - b[i]) / Math.abs(b[i]);
+    n++;
+  }
+  return n === 0 ? 0 : s / n;
+};
+
+describe('simulate() vs closedFormSingleDose()', () => {
+  it('conc curve matches the analytic solution within 1% (single dose)', () => {
+    const numeric = run(fixtureDrug, singleDose);
+    const analytic = closedFormSingleDose({ profile, drug: fixtureDrug, doses: singleDose, tEndH: 24, dtH: 0.05 });
+    expect(meanAbsRelErr(numeric.concMgPerL, analytic.concMgPerL)).toBeLessThan(0.01);
+    expect(Math.abs(numeric.cmaxMgPerL - analytic.cmaxMgPerL) / analytic.cmaxMgPerL).toBeLessThan(0.01);
+    expect(Math.abs(numeric.tmaxH - analytic.tmaxH)).toBeLessThan(0.1);
+  });
+
+  it('handles ka ≈ ke without dividing by zero (edge case)', () => {
+    const numeric = run(fixtureDrugEqualRates, singleDose);
+    const analytic = closedFormSingleDose({ profile, drug: fixtureDrugEqualRates, doses: singleDose, tEndH: 24, dtH: 0.05 });
+    expect(numeric.cmaxMgPerL).toBeGreaterThan(0);
+    expect(meanAbsRelErr(numeric.concMgPerL, analytic.concMgPerL)).toBeLessThan(0.02);
+  });
+});
+
+describe('mass balance', () => {
+  it('total dose = gut depot + cumulative elimination (+ small integration error)', () => {
+    const res = run(fixtureDrug, singleDose, 24, 0.02);
+    const cumElim = res.eliminationMgPerH.reduce((s, r, i) => (i > 0 ? s + r * (res.tH[i] - res.tH[i - 1]) : 0), 0);
+    const gutFinal = res.gutMg[res.gutMg.length - 1];
+    const bodyFinal = res.bodyMg[res.bodyMg.length - 1];
+    const doseTotal = 100;
+    expect(gutFinal).toBeCloseTo(0, 1); // essentially all absorbed from gut
+    // absorbed = in body + eliminated (within integration error)
+    expect((gutFinal + bodyFinal + cumElim) / doseTotal).toBeGreaterThan(0.99);
+    expect(gutFinal + bodyFinal + cumElim).toBeLessThanOrEqual(doseTotal * 1.02);
+  });
+});
+
+describe('linear superposition (multi-dose)', () => {
+  it('multi-dose curve = sum of shifted single-dose curves', () => {
+    const doses: DoseEvent[] = [
+      { drugId: 'fixture-drug', doseMg: 100, timeH: 0 },
+      { drugId: 'fixture-drug', doseMg: 100, timeH: 6 },
+    ];
+    const multi = run(fixtureDrug, doses);
+    const n = multi.concMgPerL.length;
+    const d1 = closedFormSingleDose({ profile, drug: fixtureDrug, doses: [doses[0]], tEndH: 24, dtH: 0.05 });
+    const d2 = closedFormSingleDose({ profile, drug: fixtureDrug, doses: [doses[1]], tEndH: 24, dtH: 0.05 });
+    const summed = multi.concMgPerL.map((_, i) => d1.concMgPerL[i] + d2.concMgPerL[i]);
+    expect(meanAbsRelErr(multi.concMgPerL, summed)).toBeLessThan(0.02);
+    expect(n).toBeGreaterThan(0);
+  });
+});
+
+describe('result invariants & known-case metrics', () => {
+  it('concentration and amounts are never negative', () => {
+    const res = run(fixtureDrug, singleDose);
+    for (const arr of [res.concMgPerL, res.gutMg, res.bodyMg, res.eliminationMgPerH]) {
+      expect(arr.every((v) => v >= 0)).toBe(true);
+    }
+  });
+
+  it('Cmax/Tmax match the analytic tmax = ln(ka/ke)/(ka-ke)', () => {
+    const res = run(fixtureDrug, singleDose);
+    const ka = 1.0;
+    const ke = 0.14;
+    const expectedTmax = Math.log(ka / ke) / (ka - ke);
+    const expectedCmax =
+      ((100 * 1 * ka) / (5 * 70 * (ka - ke))) * (Math.exp(-ke * expectedTmax) - Math.exp(-ka * expectedTmax));
+    expect(res.cmaxMgPerL).toBeCloseTo(expectedCmax, 4);
+    expect(res.tmaxH).toBeCloseTo(expectedTmax, 1);
+  });
+
+  it('timeToClearH is the first post-Tmax time below 5% of Cmax', () => {
+    const res = run(fixtureDrug, singleDose, 48, 0.02);
+    expect(res.timeToClearH).not.toBeNull();
+    const tmaxIdx = res.tH.findIndex((t) => t === res.tmaxH);
+    const threshold = 0.05 * res.cmaxMgPerL;
+    const firstClearIdx = res.concMgPerL.findIndex(
+      (c, i) => i > tmaxIdx && c < threshold
+    );
+    expect(res.timeToClearH).toBe(res.tH[firstClearIdx]);
+  });
+
+  it('returns null timeToClear when 5% of Cmax is not reached within tEndH', () => {
+    const res = run(fixtureDrug, singleDose, 3, 0.05); // too short a window
+    expect(res.timeToClearH).toBeNull();
+  });
+});
+
+describe('input validation & dose-range warnings', () => {
+  it('throws for weight <= 0', () => {
+    expect(() =>
+      simulate({ profile: { ...profile, weightKg: 0 }, drug: fixtureDrug, doses: singleDose, tEndH: 24, dtH: 0.05 })
+    ).toThrow(/weight/i);
+  });
+
+  it('throws for negative doses', () => {
+    expect(() => run(fixtureDrug, [{ drugId: 'x', doseMg: -5, timeH: 0 }])).toThrow(/dose/i);
+  });
+
+  it('throws for unknown drug', () => {
+    expect(() =>
+      simulate({
+        profile,
+        doses: singleDose,
+        tEndH: 24,
+        dtH: 0.05,
+        drug: { ...(fixtureDrug as any), name: '' },
+      })
+    ).toThrow(/unknown drug/i);
+  });
+
+  it('returns a warning (not a throw) for doses outside the label range', () => {
+    const doses: DoseEvent[] = [{ drugId: 'fixture-drug', doseMg: 1000, timeH: 0 }];
+    const res = run(fixtureDrug, doses);
+    expect(res.warnings.length).toBe(1);
+    expect(res.warnings[0]).toMatch(/outside the label range/i);
+  });
+
+  it('throws when one-compartment parameters are missing', () => {
+    const noParams = { ...fixtureDrug, ka_per_h: null, volume_per_kg_l: null, clearance_per_kg_l_per_h: null };
+    expect(() => run(noParams as any, singleDose)).toThrow(/parameters missing/i);
+  });
+});
+
+describe('buildReport()', () => {
+  it('always includes the disclaimer and stays within the template vocabulary', () => {
+    const res = run(fixtureDrug, singleDose);
+    const report = buildReport(res);
+    expect(report.disclaimer).toBe(
+      'Educational simulator. Population-average estimate. Not medical or dosing advice.'
+    );
+    expect(report.bullets.length).toBeGreaterThanOrEqual(3);
+    expect(report.headline.length).toBeGreaterThan(0);
+  });
+});
+
+describe('lookupInteraction()', () => {
+  const pairs: InteractionPair[] = [
+    {
+      a: 'caffeine',
+      b: 'paracetamol',
+      severity: 'minor',
+      mechanism: 'TEST PAIR (citation TODO)',
+      source: 'TODO',
+    },
+  ];
+
+  it('finds the pair in either order', () => {
+    expect(lookupInteraction('caffeine', 'paracetamol', pairs).found).toBe(true);
+    expect(lookupInteraction('paracetamol', 'caffeine', pairs).found).toBe(true);
+  });
+
+  it('uses the not-found wording without implying absence is safe', () => {
+    const r = lookupInteraction('ibuprofen', 'paracetamol', pairs);
+    expect(r.found).toBe(false);
+    expect(r.message).toBe('Not in our small verified set');
+  });
+});

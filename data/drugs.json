@@ -1,0 +1,41 @@
+[
+  {
+    "id": "caffeine",
+    "name": "Caffeine",
+    "route": "oral",
+    "model": "one-compartment",
+    "ka_per_h": null,
+    "F": null,
+    "CL_L_per_h_per_kg": null,
+    "V_L_per_kg": null,
+    "label_dose_range_mg": null,
+    "sources": [],
+    "notes": "TODO: source from PK-DB / label. All numeric fields are placeholders filled on Day 1 with cited values."
+  },
+  {
+    "id": "paracetamol",
+    "name": "Paracetamol",
+    "route": "oral",
+    "model": "one-compartment",
+    "ka_per_h": null,
+    "F": null,
+    "CL_L_per_h_per_kg": null,
+    "V_L_per_kg": null,
+    "label_dose_range_mg": null,
+    "sources": [],
+    "notes": "TODO: source from PK-DB / label. All numeric fields are placeholders filled on Day 1 with cited values."
+  },
+  {
+    "id": "ibuprofen",
+    "name": "Ibuprofen",
+    "route": "oral",
+    "model": "one-compartment",
+    "ka_per_h": null,
+    "F": null,
+    "CL_L_per_h_per_kg": null,
+    "V_L_per_kg": null,
+    "label_dose_range_mg": null,
+    "sources": [],
+    "notes": "TODO: source from PK-DB / drug label. All numeric fields are placeholders filled on Day 1 with cited values."
+  }
+]

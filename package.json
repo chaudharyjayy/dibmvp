@@ -1,0 +1,29 @@
+{
+  "name": "drug-in-body-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint:copy": "node scripts/lint-copy.mjs",
+    "typecheck": "tsc --noEmit",
+    "dev:summary": "tsx api/summary/server.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.4.0",
+    "vitest": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "vitest": {
+    "include": [
+      null,
+      null,
+      "supabase/tests/**/*.test.ts"
+    ]
+  }
+}
