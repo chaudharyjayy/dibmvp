@@ -1,0 +1,6 @@
+# Supabase CLI project configuration (repo-scoped)
+project_id = "lhbpkbnbxzseyygpfgeo"
+
+[db]
+# Connection settings for `supabase db push` are taken from your login/link
+# state; no credentials are stored in this file.

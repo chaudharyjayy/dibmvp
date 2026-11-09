@@ -122,9 +122,12 @@ describe('workspace safety: no privileged key references in client code', () => 
 });
 
 describe('root config sanity', () => {
-  it('.env.example exists with only the two documented variables', () => {
+  it('.env.example exists with exactly the two documented variables', () => {
     const env = readFileSync(join(repoRoot, '.env.example'), 'utf8');
     const lines = env.split('\n').filter((l) => /^[A-Z]/.test(l));
-    expect(lines).toEqual(['SUPABASE_URL=placeholder', 'SUPABASE_ANON_KEY=placeholder']);
+    expect(lines).toEqual([
+      'SUPABASE_URL=https://lhbpkbnbxzseyygpfgeo.supabase.co',
+      'SUPABASE_ANON_KEY=paste-anon-key-here',
+    ]);
   });
 });

@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "lint:copy": "node scripts/lint-copy.mjs",
     "typecheck": "tsc --noEmit",
-    "dev:summary": "tsx api/summary/server.ts"
+    "dev:summary": "tsx api/summary/server.ts",
+    "check:supabase": "tsx scripts/check-supabase.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

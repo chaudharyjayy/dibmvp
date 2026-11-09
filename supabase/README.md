@@ -89,7 +89,57 @@ The `reports` and `profiles` tables are matched by policies on `auth.uid()`;
 there are no permissive policies for `anon`, so an unsigned session gets an
 empty result set on every table — check #6 in the file proves it.
 
-## 7. Deleting the auth user itself (server-side only)
+## 8. Manual RLS test checklist (run after signup works)
+
+Working in the app (or temporarily through the client package):
+
+1. `sign up / email-OTP` as **Test User A**; confirm an empty `profiles` row was
+   created for them (Table editor → profiles).
+2. As A, `[saveReport]` one report; confirm it appears in Table editor →
+   reports with A's `user_id`.
+3. `sign out`, then `sign up / OTP` as **Test User B** (different email);
+   confirm B's profile row exists.
+4. As B, save one report; confirm it owns exactly its own row.
+5. **Cross-read**: as B, `listReports()` and `getReport('<A-report-id>')` —
+   B must see only B's report; A's id must return `not-found` / be absent.
+6. **Cross-update / cross-delete**: decode B's JWT, call the REST API with
+   B's bearer token targeting A's `user_id` — expect `UPDATE 0` / `DELETE 0` and
+   the row untouched.
+7. **Anonymous**: clear the browser session and fetch
+   `${SUPABASE_URL}/rest/v1/reports` with the anon key — you must get
+   `[]` with no error, and a POST must be rejected (RLS + no anon policy).
+8. **200-report cap**: as a test user, mass-insert to 200
+   reports; the 201st insert must fail with
+   `report cap reached (200 per user)`.
+9. Clean the test data: `deleteAllMyData()` per user, or targeted deletes from
+   the SQL editor (auth user deletion stays admin-side only, see §7).
+
+## 9. Passing the redirect URL to auth helpers
+
+`client.reports.deleteAllMyData()` is fully usable only when signed in;
+`signInWithGoogle(redirectTo)` and `signInWithEmailOtp(email)` use Supabase's
+default redirect logic, so the `redirectTo` you pass must be whitelisted in
+the dashboard first (URL Configuration below) — otherwise the provider will
+block the redirect.
+
+#### Dashboard: Authentication → URL Configuration
+
+- **Site URL (local dev)**: `http://localhost:3000`
+- **Site URL (production when deployed)**: `<your-vercel-url-here>`
+- **Redirect URLs** (add each, one per line):
+  - `http://localhost:3000/**`
+  - `https://<your-vercel-url-here>/**`
+
+#### Dashboard: Authentication → Providers
+
+- **Email**: enable *Sign in with email*; turn on **Email OTP / magic link**
+  ("Confirm email" and OTA codes). Disable plain password sign-up if you want
+  a code-based flow only.
+- **Google**: enable and paste the OAuth client ID/secret
+  (https://console.cloud.google.com), then add
+  `https://<ref>.supabase.co/auth/v1/callback` as an authorised redirect URI.
+
+## 10. Deleting the auth user itself (server-side only)
 
 `packages/data-client`'s `deleteAllMyData()` removes the user's reports and
 profile row, but the **auth user** record itself can only be removed with
