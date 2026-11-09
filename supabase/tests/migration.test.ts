@@ -10,7 +10,7 @@ const sqlChecks = readFileSync(join(repoRoot, 'supabase', 'tests', 'rls_checks.s
 function walk(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === '.git') continue;
+    if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.next') continue;
     const full = join(dir, entry.name);
     if (statSync(full).isDirectory()) out.push(...walk(full));
     else out.push(full);

@@ -22,7 +22,7 @@ if (phrases.length === 0) {
   process.exit(1);
 }
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.vercel']);
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.vercel', '.next']);
 const ALLOWED_FILES = new Set([path.relative(root, phraseFile), path.relative(root, path.join(root, 'scripts', 'lint-copy.mjs'))]);
 
 const scanRoots = ['packages', 'api', 'data', 'supabase'].map((d) => path.join(root, d)).filter((d) => fs.existsSync(d));

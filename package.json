@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "test": "vitest run",
@@ -11,7 +12,10 @@
     "lint:copy": "node scripts/lint-copy.mjs",
     "typecheck": "tsc --noEmit",
     "dev:summary": "tsx api/summary/server.ts",
-    "check:supabase": "tsx scripts/check-supabase.ts"
+    "check:supabase": "tsx scripts/check-supabase.ts",
+    "dev:web": "npm -w @dib/web run dev",
+    "build:web": "npm -w @dib/web run build",
+    "start:web": "npm -w @dib/web run start"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -22,8 +26,8 @@
   },
   "vitest": {
     "include": [
-      null,
-      null,
+      "packages/**/tests/**/*.test.ts",
+      "api/**/tests/**/*.test.ts",
       "supabase/tests/**/*.test.ts"
     ]
   }
