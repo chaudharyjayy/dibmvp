@@ -35,7 +35,15 @@ export default function Hero() {
   const [duration, setDuration] = useState(0);
   const [turning, setTurning] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const drag = useRef({ active: false, startX: 0, startTime: 0, moved: 0 });
+  const drag = useRef({
+    active: false,
+    startX: 0,
+    startTime: 0,
+    moved: 0,
+    width: 320,
+  });
+  const lastSeek = useRef(0);
+  const latestSeek = useRef<number | null>(null);
 
   // Lock background scrolling while the mobile menu is open.
   useEffect(() => {
@@ -68,7 +76,10 @@ export default function Hero() {
       startX: e.clientX,
       startTime: video.currentTime,
       moved: 0,
+      width: Math.max(320, video.clientWidth),
     };
+    latestSeek.current = null;
+    lastSeek.current = 0;
     setTurning(true);
     video.pause();
   }
@@ -79,9 +90,14 @@ export default function Hero() {
     if (!video || !d.active || !duration) return;
     const dx = e.clientX - d.startX;
     d.moved = Math.max(d.moved, Math.abs(dx));
-    video.currentTime = wrapTime(
-      d.startTime + (dx / Math.max(320, video.clientWidth)) * duration
-    );
+    const next = wrapTime(d.startTime + (dx / d.width) * duration);
+    latestSeek.current = next;
+
+    // Seeking the video is the expensive part — cap it at ~25 fps while dragging.
+    const now = performance.now();
+    if (now - lastSeek.current < 40) return;
+    lastSeek.current = now;
+    video.currentTime = next;
   }
 
   function endDrag(e: ReactPointerEvent<HTMLVideoElement>) {
@@ -90,6 +106,10 @@ export default function Hero() {
     if (!video || !d.active) return;
     d.active = false;
     setTurning(false);
+    if (latestSeek.current != null) {
+      video.currentTime = latestSeek.current;
+      latestSeek.current = null;
+    }
     if (d.moved < 5) {
       // A tap, not a drag: nudge the scene one step so it is always clickable.
       step(1);
@@ -107,7 +127,7 @@ export default function Hero() {
       {/* Background video — drag it, tap it, or use the arrows to turn. */}
       <video
         ref={videoRef}
-        className={`absolute inset-0 h-full w-full touch-none object-cover brightness-105 saturate-105 ${
+        className={`absolute inset-0 h-full w-full touch-none object-cover ${
           turning ? "cursor-grabbing" : "cursor-grab"
         }`}
         src={VIDEO_URL}
@@ -116,6 +136,8 @@ export default function Hero() {
         muted
         playsInline
         preload="auto"
+        disablePictureInPicture
+        disableRemotePlayback
         aria-label="Rotating wellness scene. Drag left or right to turn it, or use the arrow buttons."
         onLoadedMetadata={(e) => {
           const video = e.currentTarget;
@@ -213,8 +235,10 @@ export default function Hero() {
 
       {/* Mobile menu overlay */}
       <div
-        className={`fixed inset-0 z-10 bg-black/80 backdrop-blur-xl transition-opacity duration-500 ease-out md:hidden ${
-          menuOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+        className={`fixed inset-0 z-10 transition-opacity duration-500 ease-out md:hidden ${
+          menuOpen
+            ? "pointer-events-auto bg-black/80 opacity-100 backdrop-blur-xl"
+            : "pointer-events-none invisible opacity-0"
         }`}
         aria-hidden={!menuOpen}
       >
