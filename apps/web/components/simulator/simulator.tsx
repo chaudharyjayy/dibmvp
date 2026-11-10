@@ -256,7 +256,7 @@ export default function Simulator() {
                 </button>
               ) : (
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  <a href="/" className="underline">Sign in on the landing page</a> to save reports.
+                  <a href="/signin" className="underline">Sign in</a> to save reports.
                 </p>
               )}
             </div>
