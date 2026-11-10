@@ -137,12 +137,14 @@ body {
 /* ------------------------------------------------------------------ */
 
 .liquid-glass {
-  background: rgba(255, 255, 255, 0.01);
+  background: rgba(255, 255, 255, 0.06);
   background-blend-mode: luminosity;
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   border: none;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.18),
+    0 10px 40px rgba(0, 0, 0, 0.18);
   position: relative;
   overflow: hidden;
 }
