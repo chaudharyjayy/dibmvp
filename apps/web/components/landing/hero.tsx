@@ -15,6 +15,7 @@ function Logo() {
   return (
     <svg
       viewBox="0 0 256 256"
+      role="img"
       aria-label="Vibrant Wellness"
       className="h-8 w-8 fill-zinc-900 md:h-9 md:w-9"
     >
@@ -91,6 +92,19 @@ export default function Hero() {
       {/* The scene is generated in code — no video, no images. */}
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-5 py-6 sm:px-8 sm:py-8">
         <HeadViewer />
+        {/* The only path from marketing to the product. The nav stays at three items. */}
+        <div className="mt-6 flex flex-col items-center gap-3 pb-6 text-center">
+          <p className="text-xs uppercase tracking-[0.22em] text-zinc-400">
+            Educational demo · placeholder parameters
+          </p>
+          <Link
+            href="/simulator"
+            className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-7 py-3 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition hover:bg-emerald-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+          >
+            Open the simulator
+            <span aria-hidden="true">→</span>
+          </Link>
+        </div>
       </div>
 
       {/* Mobile menu overlay */}

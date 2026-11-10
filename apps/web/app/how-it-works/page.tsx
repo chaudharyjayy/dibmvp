@@ -13,7 +13,7 @@ const steps = [
     n: "01",
     title: "Describe yourself minimally",
     body:
-      "Age, weight, sex — the only three inputs the model needs. No names, no medical notes, no photos, nothing else stored.",
+      "Age, weight and sex are the only inputs the model uses. No names, no medical notes, no photos. If you sign in, those three numbers are stored so the form is pre-filled, and any report you save is kept in your account.",
   },
   {
     n: "02",
@@ -34,19 +34,19 @@ const bullets = [
     n: "01",
     title: "Standard models, no folklore",
     body:
-      "The simulation engine is open-source and framework-free: the one-compartment model and standard two-compartment math, with a documented unit-test suite.",
+      "The simulation engine is open-source and framework-free: the one-compartment model with first-order absorption, a closed-form check on the same maths, and a documented unit-test suite. The two-compartment model is not implemented yet.",
   },
   {
     n: "02",
-    title: "Interactions, only from a verified list",
+    title: "Interactions are never guessed",
     body:
-      "Pairs outside the list are labelled as exactly that — not in our small verified set — instead of being guessed.",
+      "No verified interaction list is in the dataset yet. When one exists, a pair outside it will be labelled “Not in our small verified set” — never presented as safe.",
   },
   {
     n: "03",
     title: "Your data stays yours",
     body:
-      "Reports saved to your account can be deleted one by one, or everything at once, with a single call.",
+      "The data layer can delete one saved report or all of them. The screen for that is not built yet. Nothing is shared, and no profile or report contents are logged.",
   },
 ];
 
@@ -137,9 +137,6 @@ export default function HowItWorksPage() {
             Open the simulator
             <ArrowUpRight className="h-4 w-4" strokeWidth={1.5} />
           </Link>
-          <p className="text-xs font-light text-zinc-500">
-            Educational simulator only — not medical advice.
-          </p>
         </div>
       </div>
     </main>

@@ -1,7 +1,7 @@
 import { SimInput, SimResult, DoseEvent, Drug } from './types';
 
 const kaOf = (drug: Drug): number | null => drug.ka_per_h;
-const fOf = (drug: Drug): number => drug.F ?? 1;
+const fOf = (drug: Drug): number | null => drug.F;
 const vOf = (drug: Drug): number | null => drug.V_L_per_kg;
 const clOf = (drug: Drug): number | null => drug.CL_L_per_h_per_kg;
 
@@ -31,8 +31,8 @@ export function simulate(input: SimInput): SimResult {
   const { profile, drug, doses, tEndH } = input;
   const dtH = input.dtH ?? 0.05;
 
-  if (!profile || typeof profile.weightKg !== 'number' || Number.isNaN(profile.weightKg) || profile.weightKg <= 0) {
-    throw new Error('simulate: profile.weightKg must be a number greater than 0');
+  if (!profile || typeof profile.weightKg !== 'number' || !Number.isFinite(profile.weightKg) || profile.weightKg <= 0) {
+    throw new Error('simulate: profile.weightKg must be a finite number greater than 0');
   }
   if (!drug || !drug.name || !drug.id) {
     throw new Error('simulate: unknown drug (drug with non-empty id and name is required)');
@@ -41,18 +41,22 @@ export function simulate(input: SimInput): SimResult {
     throw new Error('simulate: doses must be an array');
   }
   for (const d of doses) {
-    if (typeof d.doseMg !== 'number' || Number.isNaN(d.doseMg) || d.doseMg < 0) {
+    if (typeof d.doseMg !== 'number' || !Number.isFinite(d.doseMg) || d.doseMg < 0) {
       throw new Error(`simulate: negative or invalid dose (${d.doseMg} mg)`);
     }
-    if (typeof d.timeH !== 'number' || Number.isNaN(d.timeH) || d.timeH < 0) {
+    if (typeof d.timeH !== 'number' || !Number.isFinite(d.timeH) || d.timeH < 0) {
       throw new Error(`simulate: invalid dose time (${d.timeH})`);
     }
   }
-  if (typeof tEndH !== 'number' || tEndH <= 0) {
-    throw new Error('simulate: tEndH must be a positive number of hours');
+  if (typeof tEndH !== 'number' || !Number.isFinite(tEndH) || tEndH <= 0) {
+    throw new Error('simulate: tEndH must be a finite positive number of hours');
   }
-  if (typeof dtH !== 'number' || dtH <= 0) {
-    throw new Error('simulate: dtH must be a positive step size in hours');
+  if (typeof dtH !== 'number' || !Number.isFinite(dtH) || dtH <= 0) {
+    throw new Error('simulate: dtH must be a finite positive step size in hours');
+  }
+  // Guard against a very small dtH turning a finite window into an endless loop.
+  if (tEndH / dtH > 200_000) {
+    throw new Error('simulate: too many integration steps — increase dtH or reduce tEndH');
   }
 
   const warnings: string[] = [];
@@ -82,15 +86,15 @@ export function simulate(input: SimInput): SimResult {
   const F = fOf(drug);
   const vPerKg = vOf(drug);
   const clPerKg = clOf(drug);
-  if (ka == null || vPerKg == null || clPerKg == null) {
+  if (ka == null || F == null || vPerKg == null || clPerKg == null) {
     throw new Error(
-      `simulate: drug parameters missing for ${drug.name} — ka_per_h, V_L_per_kg, CL_L_per_h_per_kg are required (TODO: source from PK-DB / label)`
+      `simulate: drug parameters missing for ${drug.name} — ka_per_h, F, V_L_per_kg and CL_L_per_h_per_kg are required (TODO: source from PK-DB / label)`
     );
   }
-  if (ka <= 0) throw new Error('simulate: ka_per_h must be > 0');
-  if (vPerKg <= 0) throw new Error('simulate: V_L_per_kg must be > 0');
-  if (clPerKg < 0) throw new Error('simulate: CL_L_per_h_per_kg must be >= 0');
-  if (F <= 0 || F > 1) throw new Error('simulate: F (bioavailability) must be in (0, 1]');
+  if (!Number.isFinite(ka) || ka <= 0) throw new Error('simulate: ka_per_h must be a finite number > 0');
+  if (!Number.isFinite(vPerKg) || vPerKg <= 0) throw new Error('simulate: V_L_per_kg must be a finite number > 0');
+  if (!Number.isFinite(clPerKg) || clPerKg < 0) throw new Error('simulate: CL_L_per_h_per_kg must be a finite number >= 0');
+  if (!Number.isFinite(F) || F <= 0 || F > 1) throw new Error('simulate: F (bioavailability) must be in (0, 1]');
 
   // ---- model parameters (per-kg scaling, see header comment) ---------------
   const V = vPerKg * profile.weightKg; // L
@@ -99,6 +103,14 @@ export function simulate(input: SimInput): SimResult {
 
   // ---- integration --------------------------------------------------------
   const sorted: DoseEvent[] = [...doses].sort((a, b) => a.timeH - b.timeH);
+  // Doses outside the window are dropped with a warning rather than throwing:
+  // shrinking the window in the UI used to surface "internal error" verbatim.
+  const applicable = sorted.filter((d) => d.timeH <= tEndH + 1e-12);
+  for (const d of sorted.slice(applicable.length)) {
+    warnings.push(
+      `A dose of ${d.doseMg} mg at t=${d.timeH} h is outside the simulated window (0–${tEndH} h) and was not applied.`
+    );
+  }
   const tOut: number[] = [];
   const gutOut: number[] = [];
   const bodyOut: number[] = [];
@@ -118,8 +130,8 @@ export function simulate(input: SimInput): SimResult {
   };
 
   const pushDosesAtOrBefore = (t: number) => {
-    while (doseIdx < sorted.length && sorted[doseIdx].timeH <= t + 1e-12) {
-      Ag += sorted[doseIdx].doseMg;
+    while (doseIdx < applicable.length && applicable[doseIdx].timeH <= t + 1e-12) {
+      Ag += applicable[doseIdx].doseMg;
       doseIdx++;
     }
   };
@@ -133,25 +145,36 @@ export function simulate(input: SimInput): SimResult {
     return [dAg, dA];
   };
 
+  // RK4 is only stable while max(ka, ke) * h is small. Subdividing keeps the
+  // output grid at dtH (so curves and tests do not change shape) while making
+  // stiff parameters (e.g. ka = 60 /h) integrate instead of blowing up.
+  const maxStableStep = 0.5 / Math.max(ka, ke);
+
   let t = 0;
   while (t < tEndH - 1e-12) {
     const step = Math.min(dtH, tEndH - t);
-    const [k1g, k1a] = deriv(Ag, A);
-    const [k2g, k2a] = deriv(Ag + (step / 2) * k1g, A + (step / 2) * k1a);
-    const [k3g, k3a] = deriv(Ag + (step / 2) * k2g, A + (step / 2) * k2a);
-    const [k4g, k4a] = deriv(Ag + step * k3g, A + step * k3a);
+    const substeps = Math.max(1, Math.ceil(step / maxStableStep));
+    if (substeps > 10_000) {
+      throw new Error('simulate: parameters too stiff for this step size — reduce dtH');
+    }
+    const h = step / substeps;
 
-    const gNext = Ag + (step / 6) * (k1g + 2 * k2g + 2 * k3g + k4g);
-    const aNext = A + (step / 6) * (k1a + 2 * k2a + 2 * k3a + k4a);
+    for (let s = 0; s < substeps; s++) {
+      const [k1g, k1a] = deriv(Ag, A);
+      const [k2g, k2a] = deriv(Ag + (h / 2) * k1g, A + (h / 2) * k1a);
+      const [k3g, k3a] = deriv(Ag + (h / 2) * k2g, A + (h / 2) * k2a);
+      const [k4g, k4a] = deriv(Ag + h * k3g, A + h * k3a);
+
+      Ag += (h / 6) * (k1g + 2 * k2g + 2 * k3g + k4g);
+      A += (h / 6) * (k1a + 2 * k2a + 2 * k3a + k4a);
+    }
 
     t += step;
-    Ag = gNext;
-    A = aNext;
     pushDosesAtOrBefore(t);
     record(t);
   }
 
-  if (doseIdx < sorted.length) {
+  if (doseIdx < applicable.length) {
     throw new Error('simulate: internal error — a dose event was never applied');
   }
 

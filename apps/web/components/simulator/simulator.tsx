@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { simulate, buildReport, type SimResult, type BodyProfile, type DoseEvent } from "@dib/engine";
 import { createDataClient, type DataClient } from "@dib/data-client";
 import CurveChart from "@/components/simulator/curve-chart";
@@ -78,11 +79,19 @@ export default function Simulator() {
 
   // ---- engine -------------------------------------------------------------
   const profile: BodyProfile = { ageYears, weightKg, sex: toEngineSex(sex) };
-  const inputValid =
-    Number.isInteger(ageYears) && ageYears >= 1 && ageYears <= 120 &&
-    weightKg > 0 && weightKg < 400 &&
-    rows.length >= 1 &&
-    rows.every((r) => Number.isFinite(r.timeH) && r.timeH >= 0 && r.timeH <= 96 && Number.isFinite(r.doseMg) && r.doseMg >= 0 && r.doseMg <= 10_000);
+  let inputError: string | null = null;
+  if (!Number.isInteger(ageYears) || ageYears < 1 || ageYears > 120) {
+    inputError = "Age must be a whole number between 1 and 120.";
+  } else if (!Number.isFinite(weightKg) || weightKg <= 0 || weightKg >= 400) {
+    inputError = "Weight must be a number greater than 0 and below 400 kg.";
+  } else if (rows.length === 0) {
+    inputError = "Add at least one dose.";
+  } else if (rows.some((r) => !Number.isFinite(r.doseMg) || r.doseMg <= 0 || r.doseMg > 10_000)) {
+    inputError = "Each dose must be a number greater than 0 and at most 10,000 mg.";
+  } else if (rows.some((r) => !Number.isFinite(r.timeH) || r.timeH < 0 || r.timeH > tEndH)) {
+    inputError = `Each dose time must be between 0 and ${tEndH} h — the simulated window.`;
+  }
+  const inputValid = inputError === null;
 
   let result: SimResult | null = null;
   let simError: string | null = null;
@@ -104,25 +113,40 @@ export default function Simulator() {
     if (!client || !result || !report || saving) return;
     setSaving(true);
     setAction(null);
-    const summaryText = report.bullets.join("\n").slice(0, 1000);
-    const { data, error } = await client.reports.saveReport({
+
+    // One entry per (drug, amount), each carrying every time that amount was given.
+    // The old version kept only the first row, so a 0 h + 6 h schedule was saved as one time.
+    const byAmount = new Map<number, number[]>();
+    for (const r of rows) {
+      const times = byAmount.get(r.doseMg) ?? [];
+      times.push(r.timeH);
+      byAmount.set(r.doseMg, times);
+    }
+    const drugs = [...byAmount.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([doseMg, times]) => ({
+        drugId: exampleDrug.id,
+        doseMg,
+        times: [...new Set(times)].sort((a, b) => a - b),
+      }));
+
+    const summaryText = [
+      "Synthetic demo parameters — not real pharmacology.",
+      ...report.bullets,
+    ].join("\n").slice(0, 1000);
+
+    const { error } = await client.reports.saveReport({
       title: `${exampleDrug.name} — ${new Date().toISOString().slice(0, 10)}`,
       profileSnapshot: { ageYears, weightKg, sex },
-      drugs: rows.map((r) => ({
-        drugId: exampleDrug.id,
-        doseMg: r.doseMg,
-        times: rows.filter((x) => x.timeH === r.timeH && x.doseMg === r.doseMg).map((x) => x.timeH),
-      })).filter((d, i, arr) => arr.findIndex((y) => y.drugId === d.drugId) === i),
+      drugs,
       metrics: {
         cmaxMgPerL: result.cmaxMgPerL,
         tmaxH: result.tmaxH,
         timeToClearH: result.timeToClearH,
       },
-      warnings: rows.map((r) => ({
-        pair: exampleDrug.id,
-        severity: "minor" as const,
-        note: result!.warnings.slice(0, 1)[0]?.slice(0, 100) ?? "",
-      })),
+      // No verified interaction pairs exist yet. Sending [] is the honest value;
+      // the previous version wrote one invented "minor" interaction per dose.
+      warnings: [],
       summary: summaryText,
       summarySource: "template",
       engineVersion: "0.1.0",
@@ -153,8 +177,9 @@ export default function Simulator() {
       <section className={card}>
         <h2 className="font-medium">1 · Your profile</h2>
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          The only three numbers the model needs. Age and sex are stored but not yet
-          used by the model — no age/sex equation exists in the engine yet.
+          Only weight changes the curve today: volume and clearance both scale with body
+          weight, so a heavier person reaches a lower peak with the same half-life. Age and
+          sex are stored but not yet used — no age/sex equation exists in the engine.
         </p>
         <div className="mt-4 flex flex-wrap items-end gap-4">
           <div>
@@ -189,7 +214,12 @@ export default function Simulator() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <h2 className="font-medium">2 · {exampleDrug.name} — doses &amp; timing <span className="text-xs text-zinc-400">(test parameters)</span></h2>
           <button
-            onClick={() => setRows((r) => [...r, { timeH: Math.min(96, (r[r.length - 1]?.timeH ?? 0) + 6), doseMg: 100 }])}
+            onClick={() =>
+              setRows((r) => [
+                ...r,
+                { timeH: Math.min(tEndH, (r[r.length - 1]?.timeH ?? 0) + 6), doseMg: 100 },
+              ])
+            }
             className={buttonGhost}
           >
             + Add dose
@@ -198,15 +228,17 @@ export default function Simulator() {
 
         <div className="mt-4 space-y-2">
           {rows.map((row, i) => (
-            <div key={i} className="flex items-center gap-3">
+            <div key={i} className="flex flex-wrap items-center gap-3">
               <span className="w-16 text-xs text-zinc-500 dark:text-zinc-400">Dose {i + 1}</span>
               <label className="sr-only" htmlFor={`dose-${i}`}>Amount in mg</label>
-              <input id={`dose-${i}`} type="number" min={0} max={10000} step={25} value={row.doseMg}
+              <input id={`dose-${i}`} type="number" min={1} max={10000} step={25} value={row.doseMg}
+                aria-invalid={!Number.isFinite(row.doseMg) || row.doseMg <= 0 || row.doseMg > 10_000}
                 onChange={(e) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, doseMg: Number(e.target.value) } : r)))}
                 className={rowInput} aria-label={`Dose ${i + 1} amount in mg`} />
               <span className="text-xs text-zinc-400">mg at</span>
               <label className="sr-only" htmlFor={`time-${i}`}>Time in hours</label>
-              <input id={`time-${i}`} type="number" min={0} max={96} step={0.5} value={row.timeH}
+              <input id={`time-${i}`} type="number" min={0} max={tEndH} step={0.5} value={row.timeH}
+                aria-invalid={!Number.isFinite(row.timeH) || row.timeH < 0 || row.timeH > tEndH}
                 onChange={(e) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, timeH: Number(e.target.value) } : r)))}
                 className={rowInput} aria-label={`Dose ${i + 1} time in hours`} />
               <span className="text-xs text-zinc-400">h</span>
@@ -221,7 +253,12 @@ export default function Simulator() {
 
         <div className="mt-4 flex items-center gap-3">
           <label className={fieldLabel} htmlFor="tend">Simulate for</label>
-          <select id="tend" value={tEndH} onChange={(e) => setTEndH(Number(e.target.value))}
+          <select id="tend" value={tEndH}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              setTEndH(next);
+              setRows((rs) => rs.map((r) => ({ ...r, timeH: Math.min(r.timeH, next) })));
+            }}
             className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-transparent dark:bg-zinc-900 px-2 py-1.5 text-sm">
             <option value={12}>12 h</option>
             <option value={24}>24 h</option>
@@ -235,10 +272,10 @@ export default function Simulator() {
       {/* Curve + report */}
       <section className={card}>
         <h2 className="font-medium">3 · Result</h2>
-        {!inputValid && (
-          <p className="mt-3 text-sm text-rose-600">Fix the highlighted inputs — outside the validated ranges above, nothing runs.</p>
+        {inputError && (
+          <p role="alert" className="mt-3 text-sm text-rose-600">{inputError}</p>
         )}
-        {inputValid && simError && <p className="mt-3 text-sm text-rose-600">{simError}</p>}
+        {inputValid && simError && <p role="alert" className="mt-3 text-sm text-rose-600">{simError}</p>}
         {result && report && (
           <div className="mt-4 grid gap-6 lg:grid-cols-[1fr,300px]">
             <CurveChart result={result} />
@@ -256,7 +293,7 @@ export default function Simulator() {
                 </button>
               ) : (
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  <a href="/signin" className="underline">Sign in</a> to save reports.
+                  <Link href="/signin" className="underline">Sign in</Link> to save reports.
                 </p>
               )}
             </div>

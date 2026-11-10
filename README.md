@@ -27,7 +27,7 @@ npm run lint:copy     # copy lint (banned phrases)
 - Drug parameters in `data/drugs.json` stay `null` with TODO notes until a
   cited value exists (PK-DB / official labels). Never invented.
 - `lookupInteraction` misses return "Not in our small verified set" — never
-  "no interaction", never implying safety.
+  "no interaction", never implying safety. <!-- lint-copy: allow -->
 - `buildReport` always carries the fixed disclaimer.
 - The AI summary is optional; every reply is verified (numbers ⊆ input, no
   banned phrases) or replaced by a deterministic template.

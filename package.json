@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "dev:summary": "tsx api/summary/server.ts",
     "check:supabase": "tsx scripts/check-supabase.ts",
+    "check:rls": "tsx scripts/check-rls-two-users.ts",
     "dev:web": "npm -w @dib/web run dev",
     "build:web": "npm -w @dib/web run build",
     "start:web": "npm -w @dib/web run start"
@@ -28,7 +29,8 @@
     "include": [
       "packages/**/tests/**/*.test.ts",
       "api/**/tests/**/*.test.ts",
-      "supabase/tests/**/*.test.ts"
+      "supabase/tests/**/*.test.ts",
+      "scripts/tests/**/*.test.ts"
     ]
   }
 }

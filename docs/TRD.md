@@ -4,9 +4,9 @@ Nov 8, 2026 · @Jay
 
 ## Technical overview
 
-The app runs in the browser: a TypeScript engine solves a small set of ODEs for 3-5 drugs, draws the curve and body view, and builds the report. The only optional network call is an AI summary through a serverless functi- and two-compartment models, population-average results, no accounts, no stored person. Python is used offline on Days 1-3 to build and validate the model and the parameter file.on. Python is used offline on Days 1-3 to build and validate the model and the parameter file.
+The app runs in the browser: a TypeScript engine solves a small set of ODEs, draws the concentration curve, and builds the report. Drug and interaction data are static JSON; the only server work is optional accounts and saved reports (Supabase) and the optional AI summary behind a serverless function. Models are population-average; no real person's data is needed. Python is used offline to build and validate the model and the parameter file.
 
-Scope matches the PRD: one onal data. A full PBPK model is out of scope; open-source PBPK tools are listed where they help as references or cross-checks.
+Scope matches the PRD: one-compartment oral simulation for a small set of drugs, population-average results, optional accounts, no stored real patient. A full PBPK model is out of scope; open-source PBPK tools are listed where they help as references or cross-checks.
 
 ## System architecture
 
@@ -20,13 +20,13 @@ The stack is a proposal chosen for speed in a 15-day build; swap any row you pre
 
 | Layer | Choice | Why |
 | --- | --- | --- |
-| Frontend | React, TypeScript, Vite | Fast setup, typed engine code |
+| Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind v4 | Server rendering for the marketing pages, typed engine code |
 | Simulation | Closed-form single dose plus a small RK4 ODE solver | Runs in the browser; handles multi-dose events |
 | Charts | Plain SVG or a small chart library | Needs a live cursor tied to the time slider |
 | Body view | Custom SVG organs | Existing body libraries are muscle maps, not organs |
 | Offline model | Python, NumPy, SciPy, notebooks | Validate before porting to TypeScript |
 | Cross-check | PK-Sim or Chi | Independent solver for the same parameters |
-| Data | JSON files in the repo | No database needed for 3-5 drugs |
+| Data | Static JSON for drugs and interactions; Supabase (Postgres + RLS) for optional accounts and saved reports | Drug data needs no database; user data needs ownership rules |
 | AI summary | Serverless function calling the Claude API | Keeps the API key off the client |
 | Hosting | Static host plus one function | Simple deploy |
 
@@ -42,7 +42,7 @@ C(t) = \frac{A(t)}{V}
 
 A\_g is the amount in the gut, A the amount in the body, k\_a the absorption rate, F bioavailability, CL clearance and V volume of distribution.
 
-- **Covariates:** V scales with body weight, as in a published teaching simulator that uses the same one-compartment form. Any age or sex effect is added per drug only when a source supports it.
+- **Covariates:** both V and CL scale with body weight (per-kg parameters), so `ke = CL/V` is independent of weight: half-life is unchanged by weight and peak concentration falls as weight rises. Any age or sex effect is added per drug only when a source supports it.
 - **Multi-dose:** each dose adds to A\_g at its time, and the solver steps through the events.
 - **Outputs:** Cmax, Tmax, and time to clear, defined as the time concentration falls below 5% of Cmax (proposed definition).
 - **Assumptions:** linear kinetics and a healthy adult. Clearance varies a lot between people and can depend on dose, so doses stay within the label range.
@@ -90,7 +90,7 @@ The zeros are placeholders to fill on Day 1.
 In the MVP, interactions are warnings, not simulations: the engine flags known pairs and does not change the curves.
 
 - **Data:** `data/interactions.json`, one object per verified pair with drug A, drug B, severity (major, moderate or minor, the levels DDInter uses), a mechanism note and a source.
-- **Logic:** with two or more drugs selected, look up every pair and pass hits to the report. A miss shows "no entry in our small verified set", never "no interaction".
+- **Logic:** with two or more drugs selected, look up every pair and pass hits to the report. A miss shows "Not in our small verified set", never "no interaction". <!-- lint-copy: allow -->
 - **Stretch:** where a published change in clearance exists, apply it as a multiplier, only with a cited source. The Open-Systems-Pharmacology DDI repos show validated examples.
 - **Candidate sources:** DDInter, openFDA label text and RxNav. Each pair is checked by hand before it ships.
 
@@ -164,7 +164,7 @@ The curves are only trusted once they pass these checks. Pass thresholds are pro
 ## Safety and privacy implementation
 
 - A fixed disclaimer component renders on every screen and cannot be dismissed.
-- A copy-lint script fails the build on banned phrases such as "safe dose" or "recommended dose".
+- A copy-lint script fails the build on banned phrases such as "safe dose" or "recommended dose". <!-- lint-copy: allow -->
 - The AI summary is filtered as described above, with a template fallback.
 - The body profile lives in browser memory only; nothing is stored or sent except the numbers in a summary request.
 - The Claude API key stays in the serverless function, which is rate-limited.

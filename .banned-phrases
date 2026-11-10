@@ -1,3 +1,10 @@
+# Phrases that must never appear in product copy, UI, docs or prompts.
+# One per line; lines starting with # are ignored.
+# Interaction misses must read "Not in our small verified set".
 safe dose
 recommended dose
 you should take
+normal dose
+it is safe to
+you can take
+no interaction

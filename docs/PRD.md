@@ -24,7 +24,7 @@ Non-goals
 - A full human digital twin or whole-body PBPK model.
 - Detecting what drugs a real person has taken (that needs lab tests or sensors).
 - Personalized medical or dosing advice.
-- User accounts, native mobile apps, or genetics-based personalization.
+- Native mobile apps or genetics-based personalization.
 
 ## Target users
 
@@ -57,7 +57,7 @@ Nine features ship; the first six are the core demo.
 | AI plain-language summary | Could | Wraps the numbers from the engine, never invents them |
 | Export report as image or PDF | Could | Post-demo polish |
 
-Out for the MVP: accounts, saved sessions, sharing, mobile app.
+Out for the MVP: sharing between users, native mobile apps. Accounts and saved reports are in (optional; signed-out use works).
 
 ## User flow and screens
 
@@ -101,9 +101,9 @@ The MVP succeeds if the demo runs cleanly and the curves look right. These targe
 The app must never read as medical advice, because people may act on what they see.
 
 - A disclaimer is visible on every screen: educational simulator, population averages, not dosing advice.
-- No "safe dose" or "recommended dose" wording anywhere, including in AI summaries.
+- No "safe dose" or "recommended dose" wording anywhere, including in AI summaries. <!-- lint-copy: allow -->
 - Results are population-average estimates; the report says so.
-- No personal data is stored; the body profile stays in the browser.
+- If you sign in, your age, weight and sex and any report you save are stored in your own account, protected per-user by database row-level security. Signed-out use stores nothing. Nothing is shared, and profile or report contents are never logged.
 - Interaction data is limited to a small verified set, and its licence is checked before use (DDInter data is non-commercial).
 - The AI summary may only rephrase numbers the engine produced.
 
@@ -120,7 +120,7 @@ Risks
 - **Accuracy:** population-average curves differ from any real person. Mitigation: validate against published curves and say so in the report.
 - **Interaction data:** DDInter data is licensed CC BY-NC-SA 4.0, so non-commercial only. Mitigation: keep a small hand-verified set and check licences before any commercial use.
 - **Scope creep:** a full PBPK model is out of reach in 15 days. Mitigation: stay with one- and two-compartment models.
-- **Misread as dosing advice:** mitigated by the disclaimer and by banning "safe dose" wording.
+- **Misread as dosing advice:** mitigated by the disclaimer and by banning "safe dose" wording. <!-- lint-copy: allow -->
 
 Open questions
 

@@ -138,8 +138,49 @@ describe('input validation & dose-range warnings', () => {
   });
 
   it('throws when one-compartment parameters are missing', () => {
-    const noParams = { ...fixtureDrug, ka_per_h: null, volume_per_kg_l: null, clearance_per_kg_l_per_h: null };
+    const noParams = { ...fixtureDrug, ka_per_h: null, F: null, V_L_per_kg: null, CL_L_per_h_per_kg: null };
     expect(() => run(noParams as any, singleDose)).toThrow(/parameters missing/i);
+  });
+
+  it('throws when F is missing rather than assuming 1.0', () => {
+    const noF = { ...fixtureDrug, F: null };
+    expect(() => run(noF as any, singleDose)).toThrow(/parameters missing/i);
+  });
+
+  it('rejects non-finite weights, times and step sizes', () => {
+    expect(() => run(fixtureDrug, singleDose, Infinity)).toThrow(/finite/i);
+    expect(() => run(fixtureDrug, singleDose, 24, NaN)).toThrow(/finite/i);
+    expect(() =>
+      simulate({ profile: { ...profile, weightKg: Infinity }, drug: fixtureDrug, doses: singleDose, tEndH: 24, dtH: 0.05 })
+    ).toThrow(/finite/i);
+    expect(() => run(fixtureDrug, [{ drugId: 'x', doseMg: NaN, timeH: 0 }])).toThrow(/dose/i);
+  });
+
+  it('drops a dose outside the window with a warning instead of throwing', () => {
+    const doses: DoseEvent[] = [
+      { drugId: 'fixture-drug', doseMg: 100, timeH: 0 },
+      { drugId: 'fixture-drug', doseMg: 100, timeH: 18 },
+    ];
+    const res = run(fixtureDrug, doses, 12);
+    expect(res.warnings.some((w) => /outside the simulated window/i.test(w))).toBe(true);
+    expect(res.cmaxMgPerL).toBeGreaterThan(0);
+  });
+
+  it('stays finite for stiff absorption (ka = 60 /h)', () => {
+    const stiff = { ...fixtureDrug, ka_per_h: 60 };
+    const res = simulate({ profile, drug: stiff, doses: singleDose, tEndH: 6, dtH: 0.05 });
+    expect(Number.isFinite(res.cmaxMgPerL)).toBe(true);
+    expect(res.concMgPerL.every((c) => Number.isFinite(c) && c >= 0)).toBe(true);
+    // no more than the whole dose in one litre of the model volume
+    expect(res.cmaxMgPerL).toBeLessThan(100 / (5 * 70) + 1e-9);
+  });
+
+  it('scales both V and CL with weight, so half-life is unchanged and peak falls', () => {
+    const light = simulate({ profile: { ...profile, weightKg: 70 }, drug: fixtureDrug, doses: singleDose, tEndH: 24, dtH: 0.05 });
+    const heavy = simulate({ profile: { ...profile, weightKg: 100 }, drug: fixtureDrug, doses: singleDose, tEndH: 24, dtH: 0.05 });
+    expect(heavy.cmaxMgPerL).toBeLessThan(light.cmaxMgPerL);
+    expect(heavy.cmaxMgPerL / light.cmaxMgPerL).toBeCloseTo(0.7, 2);
+    expect(Math.abs(heavy.tmaxH - light.tmaxH)).toBeLessThan(0.1);
   });
 });
 

@@ -43,18 +43,14 @@ export default function SignInPage() {
             Save your reports
           </h1>
           <p className="mt-3 text-sm font-light leading-6 text-zinc-600">
-            Sign in with a one-time email link. No password, no profile content
-            beyond the three numbers the model uses.
+            Sign in with a one-time email link — no password. We store your age,
+            weight and sex, plus any report you choose to save. You can sign out
+            at any time.
           </p>
 
           <div className="mt-8">
             <AuthPanel />
           </div>
-
-          <p className="mt-6 text-[11px] leading-5 text-zinc-400">
-            Educational simulator only — not medical advice. Reports can be
-            deleted at any time.
-          </p>
         </div>
       </div>
     </main>

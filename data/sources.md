@@ -21,7 +21,7 @@ Rules (from the TRD):
 - Candidate sources: DDInter (CC BY-NC-SA 4.0 — non-commercial, must attribute),
   openFDA label text, RxNav.
 - A pair that is *not* in this file must be reported by the engine as
-  "Not in our small verified set" — never as "no interaction" and never as safe.
+  "Not in our small verified set" — never as "no interaction" and never as safe. <!-- lint-copy: allow -->
 
 ## drugs.json sources table (fill in as parameters land)
 

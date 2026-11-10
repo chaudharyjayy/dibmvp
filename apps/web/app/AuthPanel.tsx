@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { createDataClient, type DataClient } from "@dib/data-client";
 
 type SessionState = { userId: string | null; email: string | null } | null;
@@ -65,22 +66,6 @@ export default function AuthPanel() {
     if (!error) setEmail("");
   }
 
-  async function continueWithGoogle() {
-    if (!client || busy) return;
-    setBusy(true);
-    setNotice(null);
-    const { error } = await client.auth.signInWithGoogle(
-      `${window.location.origin}/auth/callback`
-    );
-    setBusy(false);
-    if (error) {
-      setNotice(
-        `Google sign-in is not available yet: ${error.message} (enable the Google provider in the Supabase dashboard).`
-      );
-    }
-    // On success the browser redirects to Supabase and back — no further UI.
-  }
-
   async function signOut() {
     if (!client) return;
     setBusy(true);
@@ -95,7 +80,8 @@ export default function AuthPanel() {
         <div className="flex-1 text-sm leading-6">
           <p className="font-medium">Signed in{session.email ? ` as ${session.email}` : ""}.</p>
           <p className="text-zinc-500 dark:text-zinc-400">
-            The simulator itself is the next build step — you are set up for it.
+            Your saved reports are in the{" "}
+            <Link href="/simulator" className="underline">simulator</Link>.
           </p>
         </div>
         <button
@@ -133,18 +119,6 @@ export default function AuthPanel() {
           {busy ? "Sending…" : "Email me a sign-in link"}
         </button>
       </div>
-      <div className="flex items-center gap-3 text-xs text-zinc-400">
-        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-        or
-        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-      </div>
-      <button
-        onClick={() => void continueWithGoogle()}
-        disabled={busy}
-        className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
-      >
-        Continue with Google
-      </button>
       {notice ? (
         <p className="text-xs text-zinc-500 dark:text-zinc-400" role="status">
           {notice}

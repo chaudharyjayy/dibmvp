@@ -8,7 +8,7 @@ export interface InteractionLookupResult {
 
 /**
  * Look up a verified interaction pair in either order.
- * Never claim "no interaction" or "safe" when the pair is absent — the
+ * Never claim "no interaction" or "safe" when the pair is absent — the // lint-copy: allow — quoting the forbidden wording
  * absence only means the pair is not in this small, cited data set.
  */
 export function lookupInteraction(

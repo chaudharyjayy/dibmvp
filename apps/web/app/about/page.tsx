@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowUpRight, CircleUserRound } from "lucide-react";
 export const metadata: Metadata = {
   title: "About us — Drug-in-Body",
   description:
-    "An educational simulator that makes drug concentration over time visible — with sourced parameters, no invented values, and no advice.",
+    "An educational simulator that makes drug concentration over time visible — no invented values, and no advice.",
 };
 
 export default function AboutPage() {
@@ -52,10 +52,10 @@ export default function AboutPage() {
             numbers you enter.
           </p>
           <p>
-            It is intentionally small. A handful of drugs, a short verified
-            interaction list, one clear curve. Where a value has not been sourced
-            from a published dataset or an official label, it stays blank and the
-            interface says so — nothing is invented to make a screen look full.
+            It is intentionally small. One clearly fake demo drug for now. A real
+            drug enters only when its parameters are sourced from a published
+            dataset or an official label; until then they stay blank and the
+            interface says so. There is no verified interaction list yet.
           </p>
           <p>
             The engine is open-source and framework-free with a documented test
@@ -76,7 +76,7 @@ export default function AboutPage() {
           <div className="rounded-[1.75rem] border border-zinc-200 bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04)] sm:p-7">
             <h2 className="text-sm font-medium text-rose-600">Never stored</h2>
             <ul className="mt-3 space-y-2 text-sm font-light leading-6 text-zinc-600">
-              <li>Names, or emails beyond the sign-in id</li>
+              <li>Names, or contact details beyond the sign-in email</li>
               <li>Free-text medical notes</li>
               <li>Photos, locations, contacts</li>
             </ul>
