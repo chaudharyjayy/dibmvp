@@ -36,7 +36,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col pb-9">
         {children}
-        <Disclaimer />
       </body>
     </html>
   );
