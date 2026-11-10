@@ -293,21 +293,20 @@ export default function HeadViewer() {
 
   return (
     <div className="w-full">
-      <div className="relative overflow-hidden rounded-[1.5rem] border border-zinc-200/80 bg-gradient-to-b from-white via-white to-zinc-50 shadow-[0_35px_90px_-38px_rgba(0,0,0,0.45)] sm:rounded-[2rem]">
-        <canvas
-          ref={canvasRef}
-          className={`h-[54svh] w-full touch-none sm:h-[60svh] md:h-[62svh] ${
-            turning ? "cursor-grabbing" : "cursor-grab"
-          }`}
-          aria-label="A slowly rotating point-cloud bust. Drag left or right to turn it, or use the arrow buttons."
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-        />
-      </div>
+      {/* No frame, no card, no background — the bust sits directly on the page. */}
+      <canvas
+        ref={canvasRef}
+        className={`h-[56svh] w-full touch-none sm:h-[62svh] md:h-[66svh] ${
+          turning ? "cursor-grabbing" : "cursor-grab"
+        }`}
+        aria-label="A slowly rotating point-cloud bust. Drag left or right to turn it, or use the arrow buttons."
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      />
 
-      <div className="mt-5 flex flex-col items-center gap-2 sm:mt-6">
+      <div className="mt-2 flex flex-col items-center gap-2 sm:mt-3">
         <div className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white p-1.5 shadow-sm">
           <button
             type="button"
