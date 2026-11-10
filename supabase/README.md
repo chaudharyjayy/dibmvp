@@ -10,20 +10,22 @@ and `npm run lint:copy`).
 2. Name it (e.g. `drug-in-body`), pick a region, set a strong database
    password. Keep the dashboard open for steps below.
 
-## 2. Run the migration
+## 2. Run the migrations
 
-Either:
+In order, either:
 
-- **SQL editor**: dashboard → *SQL editor* → paste `supabase/migrations/0001_init.sql`
-  → *Run*; or
+- **SQL editor**: dashboard → *SQL editor* → run
+  `supabase/migrations/0001_init.sql`, then
+  `supabase/migrations/0002_drug_catalog.sql`; or
 - **Supabase CLI**:
   ```bash
   supabase link --project-ref <your-project-ref>
   supabase db push
   ```
 
-Verify tables appear under *Table editor*: `profiles`, `reports` (each shows
-"RLS enabled").
+Verify tables appear under *Table editor*: `profiles`, `reports`, `drugs`,
+`drug_products`, `drug_pk` (each shows "RLS enabled") and the view
+`drug_pk_public`.
 
 ## 3. Enable the auth providers
 
@@ -56,8 +58,41 @@ Dashboard → *Project Settings → API*:
 cp .env.example .env   # then paste the two values
 ```
 
-Never commit `.env`. Never use these values in a backend-only context — the
-service key is not part of this repo at all.
+Never commit `.env`. The anon key is the only key the app uses.
+
+### Server-only key (data scripts only)
+
+Loading or changing the drug catalogue needs the secret key as well:
+
+```
+SUPABASE_ADMIN_KEY=...
+```
+
+It bypasses RLS, so it is read only by `scripts/data/*` (never bundled by
+Next.js) and must never be prefixed `NEXT_PUBLIC_`. `scripts/data/lib/env.ts`
+refuses to run if a `NEXT_PUBLIC_` variant is present.
+
+## 5b. The drug catalogue (migration 0002)
+
+| Object | Access |
+| --- | --- |
+| `drugs`, `drug_products` | public read (`anon`, `authenticated`), admin-key write |
+| `drug_pk` | RLS exposes only `status = 'approved'` rows; `reviewer`/`notes` are not granted |
+| `drug_pk_public` | view of approved rows; this is what the app reads |
+| `search_drugs(q, lim)` | bounded `SECURITY INVOKER` RPC, max 50 rows |
+
+Currently live: 7,657 real ingredients and 133,331 NDC products from the
+openFDA NDC directory (CC0), loaded with:
+
+```bash
+npm run data:import      # full catalogue (idempotent upsert)
+npm run check:drugs      # anon-key audit of the live project
+```
+
+PK parameters are a separate, provenance-gated layer: see
+`scripts/data/README.md`. An approved row cannot exist without all four
+parameters, a dose range, a reviewer, a review date, a source URL and a quoted
+source sentence.
 
 ## 6. Row Level Security policies that exist after migration
 

@@ -89,6 +89,92 @@ describe('migration 0001_init.sql', () => {
   });
 });
 
+describe('migration 0002_drug_catalog.sql', () => {
+  const catalog = readFileSync(
+    join(repoRoot, 'supabase', 'migrations', '0002_drug_catalog.sql'),
+    'utf8'
+  );
+
+  it('creates the three catalogue tables', () => {
+    expect(catalog).toMatch(/create table public\.drugs \(/);
+    expect(catalog).toMatch(/create table public\.drug_products \(/);
+    expect(catalog).toMatch(/create table public\.drug_pk \(/);
+    expect(catalog).toMatch(/create extension if not exists pg_trgm/);
+  });
+
+  it('indexes search fields with trigram and array GIN indexes', () => {
+    expect(catalog).toMatch(/gin \(normalized_name gin_trgm_ops\)/);
+    expect(catalog).toMatch(/gin \(drug_ids\)/);
+    expect(catalog).toMatch(/gin \(active_ingredients jsonb_path_ops\)/);
+  });
+
+  it('requires provenance before a PK row can exist', () => {
+    expect(catalog).toMatch(/source_url text not null check \(char_length\(source_url\) >= 12\)/);
+    expect(catalog).toMatch(/source_quote text not null check \(char_length\(source_quote\) >= 40\)/);
+    expect(catalog).toMatch(/status text not null default 'pending'/);
+  });
+
+  it('rejects an approved row that is incomplete', () => {
+    expect(catalog).toMatch(/status <> 'approved' or \(/);
+    for (const field of [
+      'ka_per_h',
+      'f_bioavailability',
+      'cl_l_per_h_per_kg',
+      'v_l_per_kg',
+      'dose_min_mg',
+      'dose_max_mg',
+      'reviewer',
+      'reviewed_at',
+    ]) {
+      expect(catalog).toMatch(new RegExp(`${field} is not null`));
+    }
+    expect(catalog).toMatch(/route = 'oral'/);
+  });
+
+  it('exposes only approved PK rows without reviewer names or notes', () => {
+    expect(catalog).toMatch(/create view public\.drug_pk_public/);
+    expect(catalog).toMatch(/where status = 'approved'/);
+    expect(catalog).toMatch(/grant select on public\.drug_pk_public to anon, authenticated/);
+    expect(catalog).not.toMatch(/grant select on public\.drug_pk to/);
+    expect(catalog).toMatch(
+      /create policy "drug_pk_approved_read" on public\.drug_pk\s*\n\s*for select to anon, authenticated using \(status = 'approved'\)/
+    );
+    expect(catalog).toMatch(/grant select \(\n[^)]*\) on public\.drug_pk to anon, authenticated/);
+    expect(catalog).not.toMatch(/grant select \([^)]*reviewer/);
+    expect(catalog).not.toMatch(/grant select \([^)]*notes/);
+  });
+
+  it('derives drugs.pk_status from drug_pk in a trigger', () => {
+    expect(catalog).toMatch(/create function public\.sync_drug_pk_status/);
+    expect(catalog).toMatch(/after insert or update or delete on public\.drug_pk/);
+  });
+
+  it('allows public reads but no public writes', () => {
+    expect(catalog).toMatch(/alter table public\.drugs enable row level security/);
+    expect(catalog).toMatch(/alter table public\.drug_products enable row level security/);
+    expect(catalog).toMatch(/alter table public\.drug_pk enable row level security/);
+    for (const table of ['drugs', 'drug_products']) {
+      expect(catalog).toMatch(
+        new RegExp(`create policy "${table}_public_read" on public\\.${table}\\s*\\n\\s*for select to anon, authenticated using \\(true\\)`)
+      );
+    }
+    for (const table of ['drugs', 'drug_products', 'drug_pk']) {
+      expect(catalog).toMatch(
+        new RegExp(`revoke all on public\\.${table} from anon, authenticated`)
+      );
+    }
+    expect(catalog).not.toMatch(/for (?:insert|update|delete) to (?:anon|authenticated)/);
+  });
+
+  it('exposes one bounded search function with escaped LIKE input', () => {
+    expect(catalog).toMatch(/create function public\.search_drugs/);
+    expect(catalog).toMatch(/limit least\(greatest\(coalesce\(lim, 20\), 1\), 50\)/);
+    // SQL (standard_conforming_strings=on) writes a single backslash: escape '\'
+    expect(catalog).toMatch(/escape '\\'/);
+    expect(catalog).toMatch(/grant execute on function public\.search_drugs\(text, int\) to anon, authenticated/);
+  });
+});
+
 describe('rls_checks.sql', () => {
   it('documents the expected proofs', () => {
     expect(sqlChecks).toMatch(/user A cannot select, update or delete user B's rows/);

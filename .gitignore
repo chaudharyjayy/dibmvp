@@ -12,3 +12,6 @@ supabase/.temp
 
 # read-only reference clones (see reference/NOTES.md)
 reference/
+
+# openFDA download cache (236 MB, not committed)
+data/.cache/

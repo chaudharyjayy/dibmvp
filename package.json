@@ -13,7 +13,12 @@
     "typecheck": "tsc --noEmit",
     "dev:summary": "tsx api/summary/server.ts",
     "check:supabase": "tsx scripts/check-supabase.ts",
+    "check:drugs": "tsx scripts/check-drug-catalog.ts",
     "check:rls": "tsx scripts/check-rls-two-users.ts",
+    "data:import": "tsx scripts/data/import-catalog.ts",
+    "data:import:dry": "tsx scripts/data/import-catalog.ts --dry",
+    "data:pk": "tsx scripts/data/import-pk.ts",
+    "data:pk:dry": "tsx scripts/data/import-pk.ts --dry",
     "dev:web": "npm -w @dib/web run dev",
     "build:web": "npm -w @dib/web run build",
     "start:web": "npm -w @dib/web run start"
