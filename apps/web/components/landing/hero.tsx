@@ -23,7 +23,7 @@ function Logo() {
     <svg
       viewBox="0 0 256 256"
       aria-label="Vibrant Wellness"
-      className="h-8 w-8 fill-white md:h-9 md:w-9"
+      className="h-8 w-8 fill-zinc-900 md:h-9 md:w-9"
     >
       <path d="M 128 128 C 198.692 128 256 185.308 256 256 L 151.883 256 C 149.812 220.307 120.213 192 84 192 C 47.787 192 18.188 220.307 16.117 256 L 0 256 C 0 185.308 57.308 128 128 128 Z M 104.117 0 C 106.188 35.694 135.787 64 172 64 C 208.213 64 237.812 35.694 239.883 0 L 256 0 C 256 70.692 198.692 128 128 128 C 57.308 128 0 70.692 0 0 Z" />
     </svg>
@@ -64,7 +64,9 @@ export default function Hero() {
   const step = (direction: 1 | -1) => {
     const video = videoRef.current;
     if (!video || !duration) return;
-    video.currentTime = wrapTime(video.currentTime + direction * duration * STEP_FRACTION);
+    video.currentTime = wrapTime(
+      video.currentTime + direction * duration * STEP_FRACTION
+    );
   };
 
   function onPointerDown(e: ReactPointerEvent<HTMLVideoElement>) {
@@ -123,53 +125,20 @@ export default function Hero() {
   }
 
   return (
-    <section className="relative h-[100svh] w-full overflow-hidden bg-black text-white">
-      {/* Background video — drag it, tap it, or use the arrows to turn. */}
-      <video
-        ref={videoRef}
-        className={`absolute inset-0 h-full w-full touch-none object-cover ${
-          turning ? "cursor-grabbing" : "cursor-grab"
-        }`}
-        src={VIDEO_URL}
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-        disablePictureInPicture
-        disableRemotePlayback
-        aria-label="Rotating wellness scene. Drag left or right to turn it, or use the arrow buttons."
-        onLoadedMetadata={(e) => {
-          const video = e.currentTarget;
-          video.playbackRate = PLAYBACK_RATE;
-          setDuration(video.duration || 0);
-          void video.play().catch(() => {});
-        }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-      />
-
-      {/* Light grade — enough contrast for the glass UI, not a blackout */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/40"
-      />
-
+    <section className="relative flex min-h-[100svh] w-full flex-col bg-white text-zinc-900">
       {/* Nav */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 pt-6 sm:px-8 sm:pt-8 md:px-16 lg:px-20">
-        <Link href="/" aria-label="Home" className="pointer-events-auto">
+      <header className="relative z-20 flex items-center justify-between px-5 pt-6 sm:px-8 sm:pt-8 md:px-12 lg:px-16">
+        <Link href="/" aria-label="Home" className="shrink-0">
           <Logo />
         </Link>
 
-        <nav className="liquid-glass pointer-events-auto hidden rounded-full px-8 py-3 md:flex md:items-center md:gap-8">
+        <nav className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-8 rounded-full border border-zinc-200/90 bg-white/70 px-8 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04)] backdrop-blur-xl md:flex">
           {NAV_LINKS.map((l, i) => (
             <Link
               key={l.label}
               href={l.href}
-              className={`text-sm font-medium transition-opacity ${
-                i === 0 ? "text-white" : "text-white/70 hover:opacity-100"
+              className={`text-sm font-medium transition-colors ${
+                i === 0 ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-900"
               }`}
             >
               {l.label}
@@ -180,9 +149,9 @@ export default function Hero() {
         <Link
           href="/signin"
           aria-label="Account"
-          className="liquid-glass pointer-events-auto hidden h-10 w-10 items-center justify-center rounded-full md:flex"
+          className="hidden h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white shadow-sm transition hover:border-zinc-300 md:flex"
         >
-          <CircleUserRound className="h-5 w-5 text-white/80" strokeWidth={1.5} />
+          <CircleUserRound className="h-5 w-5 text-zinc-700" strokeWidth={1.5} />
         </Link>
 
         <button
@@ -190,16 +159,16 @@ export default function Hero() {
           onClick={() => setMenuOpen((v) => !v)}
           aria-label={menuOpen ? "Close menu" : "Open menu"}
           aria-expanded={menuOpen}
-          className="liquid-glass pointer-events-auto relative z-50 flex h-10 w-10 items-center justify-center rounded-full md:hidden"
+          className="relative z-50 flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white shadow-sm md:hidden"
         >
           <Menu
-            className={`absolute h-5 w-5 text-white transition-all duration-300 ${
+            className={`absolute h-5 w-5 text-zinc-900 transition-all duration-300 ${
               menuOpen ? "rotate-90 scale-0 opacity-0" : "rotate-0 scale-100 opacity-100"
             }`}
             strokeWidth={1.5}
           />
           <X
-            className={`absolute h-5 w-5 text-white transition-all duration-300 ${
+            className={`absolute h-5 w-5 text-zinc-900 transition-all duration-300 ${
               menuOpen ? "rotate-0 scale-100 opacity-100" : "-rotate-90 scale-0 opacity-0"
             }`}
             strokeWidth={1.5}
@@ -207,37 +176,70 @@ export default function Hero() {
         </button>
       </header>
 
-      {/* Turn controls */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-8 z-20 flex flex-col items-center gap-3 sm:bottom-10">
-        <div className="liquid-glass pointer-events-auto flex items-center gap-1 rounded-full p-1.5">
-          <button
-            type="button"
-            onClick={() => step(-1)}
-            aria-label="Turn left"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-white/80 transition hover:bg-white/10 hover:text-white"
-          >
-            <ChevronLeft className="h-5 w-5" strokeWidth={1.5} />
-          </button>
-          <span className="px-2 text-xs font-light text-white/70">Drag to turn</span>
-          <button
-            type="button"
-            onClick={() => step(1)}
-            aria-label="Turn right"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-white/80 transition hover:bg-white/10 hover:text-white"
-          >
-            <ChevronRight className="h-5 w-5" strokeWidth={1.5} />
-          </button>
+      {/* Framed scene — no overlays, nothing covering the video */}
+      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-5 py-6 sm:px-8 sm:py-8">
+        <div className="relative overflow-hidden rounded-[1.5rem] border border-zinc-200/80 bg-zinc-100 shadow-[0_35px_90px_-35px_rgba(0,0,0,0.4)] sm:rounded-[2rem]">
+          <video
+            ref={videoRef}
+            className={`h-[54svh] w-full touch-none object-cover sm:h-[60svh] md:h-[62svh] ${
+              turning ? "cursor-grabbing" : "cursor-grab"
+            }`}
+            src={VIDEO_URL}
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="auto"
+            disablePictureInPicture
+            disableRemotePlayback
+            aria-label="Rotating wellness scene. Drag left or right to turn it, or use the arrow buttons."
+            onLoadedMetadata={(e) => {
+              const video = e.currentTarget;
+              video.playbackRate = PLAYBACK_RATE;
+              setDuration(video.duration || 0);
+              void video.play().catch(() => {});
+            }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          />
         </div>
-        <p className="text-[11px] font-light text-white/45">
-          tap the scene to step · drag left or right to spin
-        </p>
+
+        {/* Turn controls */}
+        <div className="mt-5 flex flex-col items-center gap-2 sm:mt-6">
+          <div className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white p-1.5 shadow-sm">
+            <button
+              type="button"
+              onClick={() => step(-1)}
+              aria-label="Turn left"
+              className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
+            >
+              <ChevronLeft className="h-5 w-5" strokeWidth={1.5} />
+            </button>
+            <span className="px-2 text-xs font-medium text-zinc-500">
+              Drag to turn
+            </span>
+            <button
+              type="button"
+              onClick={() => step(1)}
+              aria-label="Turn right"
+              className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
+            >
+              <ChevronRight className="h-5 w-5" strokeWidth={1.5} />
+            </button>
+          </div>
+          <p className="text-[11px] font-light text-zinc-400">
+            tap the scene to step · drag left or right to spin
+          </p>
+        </div>
       </div>
 
       {/* Mobile menu overlay */}
       <div
         className={`fixed inset-0 z-10 transition-opacity duration-500 ease-out md:hidden ${
           menuOpen
-            ? "pointer-events-auto bg-black/80 opacity-100 backdrop-blur-xl"
+            ? "pointer-events-auto bg-white/90 opacity-100 backdrop-blur-xl"
             : "pointer-events-none invisible opacity-0"
         }`}
         aria-hidden={!menuOpen}
@@ -252,7 +254,9 @@ export default function Hero() {
               key={l.label}
               href={l.href}
               onClick={() => setMenuOpen(false)}
-              className="text-2xl font-medium text-white/80 transition hover:text-white"
+              className={`text-2xl font-medium transition-colors ${
+                l.href === "/" ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-900"
+              }`}
               tabIndex={menuOpen ? 0 : -1}
             >
               {l.label}
@@ -264,10 +268,10 @@ export default function Hero() {
             className="mt-4 flex flex-col items-center gap-3"
             tabIndex={menuOpen ? 0 : -1}
           >
-            <span className="liquid-glass flex h-12 w-12 items-center justify-center rounded-full">
-              <CircleUserRound className="h-6 w-6 text-white/80" strokeWidth={1.5} />
+            <span className="flex h-12 w-12 items-center justify-center rounded-full border border-zinc-200 bg-white shadow-sm">
+              <CircleUserRound className="h-6 w-6 text-zinc-700" strokeWidth={1.5} />
             </span>
-            <span className="text-sm font-light text-white/60">Account</span>
+            <span className="text-sm font-light text-zinc-500">Account</span>
           </Link>
         </div>
       </div>
