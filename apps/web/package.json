@@ -12,6 +12,7 @@
     "@dib/data-client": "*",
     "@dib/engine": "*",
     "@dib/summary": "*",
+    "@types/three": "^0.187.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "lucide-react": "^1.70.0",
@@ -19,6 +20,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "shadcn": "^4.23.0",
+    "three": "^0.187.0",
     "tw-animate-css": "^1.4.0"
   },
   "devDependencies": {

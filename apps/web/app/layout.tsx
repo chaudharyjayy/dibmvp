@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 
@@ -6,6 +6,7 @@ const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700"],
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
@@ -19,18 +20,20 @@ export const metadata: Metadata = {
     "See how a drug moves through the body over time — simulated with standard pharmacokinetic models, not advice.",
 };
 
-export default function RootLayout({
-  children,
-}: import("next").RenderableBody & { children: React.ReactNode }) {
-  const [theme, setTheme] = React.useState<"red" | "blue">("red");
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#ffffff" },
+  ],
+};
 
+export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
       className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col pb-9 overflow-hidden">
-        <ThemeToggle currentTheme={theme} setCurrentTheme={setTheme} />
+      <body className="min-h-full flex flex-col">
         {children}
       </body>
     </html>
