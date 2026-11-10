@@ -1,22 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CircleUserRound, Menu, X } from "lucide-react";
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-
-const VIDEO_URL =
-  "https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260715_082433_69699cf8-444b-4484-93cc-053e57896dfd.mp4";
+import { CircleUserRound, Menu, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import HeadViewer from "./head-viewer";
 
 const NAV_LINKS = [
   { label: "Home", href: "/" },
   { label: "How does this work", href: "/how-it-works" },
   { label: "About us", href: "/about" },
 ];
-
-/** Slow, deliberate rotation of the subject in the video. */
-const PLAYBACK_RATE = 0.45;
-/** One tap / arrow press turns this fraction of a full loop. */
-const STEP_FRACTION = 1 / 12;
 
 function Logo() {
   return (
@@ -32,18 +25,6 @@ function Logo() {
 
 export default function Hero() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [turning, setTurning] = useState(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const drag = useRef({
-    active: false,
-    startX: 0,
-    startTime: 0,
-    moved: 0,
-    width: 320,
-  });
-  const lastSeek = useRef(0);
-  const latestSeek = useRef<number | null>(null);
 
   // Lock background scrolling while the mobile menu is open.
   useEffect(() => {
@@ -54,75 +35,6 @@ export default function Hero() {
       document.body.style.overflow = previous;
     };
   }, [menuOpen]);
-
-  const wrapTime = (time: number) => {
-    if (!duration) return 0;
-    const m = time % duration;
-    return m < 0 ? m + duration : m;
-  };
-
-  const step = (direction: 1 | -1) => {
-    const video = videoRef.current;
-    if (!video || !duration) return;
-    video.currentTime = wrapTime(
-      video.currentTime + direction * duration * STEP_FRACTION
-    );
-  };
-
-  function onPointerDown(e: ReactPointerEvent<HTMLVideoElement>) {
-    const video = videoRef.current;
-    if (!video) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = {
-      active: true,
-      startX: e.clientX,
-      startTime: video.currentTime,
-      moved: 0,
-      width: Math.max(320, video.clientWidth),
-    };
-    latestSeek.current = null;
-    lastSeek.current = 0;
-    setTurning(true);
-    video.pause();
-  }
-
-  function onPointerMove(e: ReactPointerEvent<HTMLVideoElement>) {
-    const video = videoRef.current;
-    const d = drag.current;
-    if (!video || !d.active || !duration) return;
-    const dx = e.clientX - d.startX;
-    d.moved = Math.max(d.moved, Math.abs(dx));
-    const next = wrapTime(d.startTime + (dx / d.width) * duration);
-    latestSeek.current = next;
-
-    // Seeking the video is the expensive part — cap it at ~25 fps while dragging.
-    const now = performance.now();
-    if (now - lastSeek.current < 40) return;
-    lastSeek.current = now;
-    video.currentTime = next;
-  }
-
-  function endDrag(e: ReactPointerEvent<HTMLVideoElement>) {
-    const video = videoRef.current;
-    const d = drag.current;
-    if (!video || !d.active) return;
-    d.active = false;
-    setTurning(false);
-    if (latestSeek.current != null) {
-      video.currentTime = latestSeek.current;
-      latestSeek.current = null;
-    }
-    if (d.moved < 5) {
-      // A tap, not a drag: nudge the scene one step so it is always clickable.
-      step(1);
-    }
-    void video.play().catch(() => {});
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      /* pointer already released */
-    }
-  }
 
   return (
     <section className="relative flex min-h-[100svh] w-full flex-col bg-white text-zinc-900">
@@ -176,63 +88,9 @@ export default function Hero() {
         </button>
       </header>
 
-      {/* Framed scene — no overlays, nothing covering the video */}
+      {/* The scene is generated in code — no video, no images. */}
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-5 py-6 sm:px-8 sm:py-8">
-        <div className="relative overflow-hidden rounded-[1.5rem] border border-zinc-200/80 bg-zinc-100 shadow-[0_35px_90px_-35px_rgba(0,0,0,0.4)] sm:rounded-[2rem]">
-          <video
-            ref={videoRef}
-            className={`h-[54svh] w-full touch-none object-cover sm:h-[60svh] md:h-[62svh] ${
-              turning ? "cursor-grabbing" : "cursor-grab"
-            }`}
-            src={VIDEO_URL}
-            autoPlay
-            loop
-            muted
-            playsInline
-            preload="auto"
-            disablePictureInPicture
-            disableRemotePlayback
-            aria-label="Rotating wellness scene. Drag left or right to turn it, or use the arrow buttons."
-            onLoadedMetadata={(e) => {
-              const video = e.currentTarget;
-              video.playbackRate = PLAYBACK_RATE;
-              setDuration(video.duration || 0);
-              void video.play().catch(() => {});
-            }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
-          />
-        </div>
-
-        {/* Turn controls */}
-        <div className="mt-5 flex flex-col items-center gap-2 sm:mt-6">
-          <div className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white p-1.5 shadow-sm">
-            <button
-              type="button"
-              onClick={() => step(-1)}
-              aria-label="Turn left"
-              className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
-            >
-              <ChevronLeft className="h-5 w-5" strokeWidth={1.5} />
-            </button>
-            <span className="px-2 text-xs font-medium text-zinc-500">
-              Drag to turn
-            </span>
-            <button
-              type="button"
-              onClick={() => step(1)}
-              aria-label="Turn right"
-              className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
-            >
-              <ChevronRight className="h-5 w-5" strokeWidth={1.5} />
-            </button>
-          </div>
-          <p className="text-[11px] font-light text-zinc-400">
-            tap the scene to step · drag left or right to spin
-          </p>
-        </div>
+        <HeadViewer />
       </div>
 
       {/* Mobile menu overlay */}
