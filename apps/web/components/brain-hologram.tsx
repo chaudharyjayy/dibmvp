@@ -38,25 +38,86 @@ export interface BrainHologramProps {
   onRegionHover?: (region: BrainRegion | null) => void;
 }
 
-const LAT_SEGMENTS = 56;
-const LON_SEGMENTS = 44;
-const GRID_LAT_STEP = 4;
-const GRID_LON_STEP = 4;
+const LAT_SEGMENTS = 88;
+const LON_SEGMENTS = 68;
+const GRID_LAT_STEP = 7;
+const GRID_LON_STEP = 6;
 
-/** Maps a (latitude, longitude) pair on the unit sphere onto the brain surface. */
-function shape(lat: number, lon: number, out: THREE.Vector3): THREE.Vector3 {
+/** Sulcal field: 0 on the crown of a gyrus, 1 at the floor of a sulcus.
+ *
+ *  Three warped sine sheets at different frequencies read as the primary,
+ *  secondary and tertiary folding of the cortex instead of a smooth shell.
+ */
+function sulcalField(nx: number, ny: number, nz: number): number {
+  const primary = Math.abs(Math.sin(nx * 9.3 + ny * 7.7 + nz * 8.9 + 1.2));
+  const secondary = Math.abs(Math.sin(ny * 19.7 + nz * 16.3 - nx * 11.9));
+  const tertiary = Math.abs(Math.sin(nx * 25.1 + nz * 22.7 - ny * 9.3));
+  return Math.min(
+    1,
+    (1 - primary) ** 2 * 0.8 + (1 - secondary) ** 2 * 0.45 + (1 - tertiary) ** 2 * 0.22,
+  );
+}
+
+/** Large landmarks: the grooves that make a brain identifiable at a glance. */
+function landmarkField(nx: number, ny: number, nz: number): number {
+  let depth = 0;
+
+  // Central sulcus: runs obliquely over the crown between frontal and parietal.
+  if (ny > -0.06) {
+    const d = Math.abs(nz - (0.2 - 0.8 * ny));
+    depth = Math.max(depth, Math.exp(-((d / 0.1) ** 2)));
+  }
+
+  // Lateral (Sylvian) fissure: cuts in above the temporal lobe.
+  if (Math.abs(nx) > 0.28 && ny < 0.22) {
+    const d = Math.abs(ny + 0.08 + 0.6 * nz);
+    depth = Math.max(depth, 0.9 * Math.exp(-((d / 0.085) ** 2)));
+  }
+
+  // Pre-occipital notch: the small bite that marks the occipital pole.
+  if (ny < 0.16) {
+    const d = Math.abs(nz + 0.9);
+    depth = Math.max(depth, 0.7 * Math.exp(-((d / 0.075) ** 2)));
+  }
+
+  return depth;
+}
+
+/** Combined carving depth (0..1) used for both displacement and shading. */
+function carveDepth(nx: number, ny: number, nz: number): number {
+  return Math.max(sulcalField(nx, ny, nz), landmarkField(nx, ny, nz));
+}
+
+/** Vertex brightness: dark down in the sulci, bright on the gyri. */
+function carveShade(depth: number): number {
+  return 0.1 + 0.9 * (1 - depth) ** 0.7;
+}
+
+/** Maps a (latitude, longitude) pair on the unit sphere onto the brain surface.
+ *
+ *  `detail`, when supplied, receives the sulcal depth at that point so the mesh
+ *  can be shaded to match the carving.
+ */
+function shape(
+  lat: number,
+  lon: number,
+  out: THREE.Vector3,
+  detail?: { depth: number },
+): THREE.Vector3 {
   const cosLat = Math.cos(lat);
   const nx = cosLat * Math.cos(lon);
   const ny = Math.sin(lat);
   const nz = cosLat * Math.sin(lon);
 
-  // Layered sine products stand in for cortical folds.
-  const folds =
-    0.085 * Math.sin(nx * 8.1 + 1.3) * Math.sin(ny * 9.7 + 0.6) * Math.sin(nz * 8.9 + 2.4) +
-    0.042 * Math.sin(nx * 16.9 + 0.2) * Math.sin(nz * 15.3 + 1.1) +
-    0.022 * Math.sin(ny * 23.0 + 0.9) * Math.sin(nx * 27.0);
+  // Broad organic wobble, then the carved sulci on top of it.
+  const wobble =
+    0.05 * Math.sin(nx * 6.1 + 1.3) * Math.sin(ny * 5.7 + 0.6) * Math.sin(nz * 6.9 + 2.4) +
+    0.03 * Math.sin(nx * 11.9 + 0.2) * Math.sin(nz * 13.3 + 1.1);
 
-  const r = 1 + folds;
+  const depth = carveDepth(nx, ny, nz);
+  if (detail) detail.depth = depth;
+
+  const r = 1 + wobble - 0.055 * depth;
 
   let x = nx * r;
   let y = ny * r;
@@ -77,20 +138,24 @@ function lonRange(side: -1 | 1): [number, number] {
   return side === 1 ? [-Math.PI / 2, Math.PI / 2] : [Math.PI / 2, (3 * Math.PI) / 2];
 }
 
-/** Solid hemisphere surface. */
+/** Solid hemisphere surface, with vertex colours that follow the sulci. */
 function buildHemisphereSurface(side: -1 | 1): THREE.BufferGeometry {
   const [lonStart] = lonRange(side);
   const positions: number[] = [];
+  const colors: number[] = [];
   const indices: number[] = [];
   const v = new THREE.Vector3();
+  const detail = { depth: 0 };
 
   for (let i = 0; i <= LAT_SEGMENTS; i += 1) {
     const lat = -Math.PI / 2 + (i / LAT_SEGMENTS) * Math.PI;
     for (let j = 0; j <= LON_SEGMENTS; j += 1) {
       const lon = lonStart + (j / LON_SEGMENTS) * Math.PI;
-      shape(lat, lon, v);
+      shape(lat, lon, v, detail);
       // Fissure: pull each hemisphere away from the midline.
       positions.push(v.x + side * 0.028, v.y, v.z);
+      const shade = carveShade(detail.depth);
+      colors.push(shade, shade, shade);
     }
   }
 
@@ -105,6 +170,7 @@ function buildHemisphereSurface(side: -1 | 1): THREE.BufferGeometry {
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   return geometry;
@@ -147,22 +213,27 @@ function buildHemisphereGrid(side: -1 | 1): THREE.BufferGeometry {
   return geometry;
 }
 
-/** Solid, slightly folded body for the cerebellum. */
+/** Solid, finely foliated body for the cerebellum. */
 function buildCerebellumSurface(): THREE.BufferGeometry {
-  const geometry = new THREE.SphereGeometry(1, 44, 28);
+  const geometry = new THREE.SphereGeometry(1, 64, 40);
   const position = geometry.getAttribute("position") as THREE.BufferAttribute;
+  const colors = new Float32Array(position.count * 3);
   const v = new THREE.Vector3();
 
   for (let i = 0; i < position.count; i += 1) {
     v.fromBufferAttribute(position, i);
-    // Horizontal folia: tight ripples stacked along the vertical axis.
-    const folia =
-      0.045 * Math.sin(v.y * 24) + 0.03 * Math.sin(v.x * 12 + v.z * 9);
-    v.multiplyScalar(1 + folia);
+    // Tight horizontal folia, the signature of the cerebellar cortex.
+    const band = Math.sin(v.y * 34 + 0.4);
+    v.multiplyScalar(1 + 0.05 * band + 0.02 * Math.sin(v.x * 14 + v.z * 11));
     position.setXYZ(i, v.x, v.y, v.z);
+    const shade = 0.2 + 0.8 * (0.5 + 0.5 * band) ** 1.4;
+    colors[i * 3] = shade;
+    colors[i * 3 + 1] = shade;
+    colors[i * 3 + 2] = shade;
   }
 
   position.needsUpdate = true;
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.scale(0.56, 0.3, 0.4);
   geometry.translate(0, -0.36, -0.78);
   geometry.computeVertexNormals();
@@ -171,7 +242,20 @@ function buildCerebellumSurface(): THREE.BufferGeometry {
 
 /** Tapered brainstem running from the underside toward the spinal cord. */
 function buildBrainstemSurface(): THREE.BufferGeometry {
-  const geometry = new THREE.CylinderGeometry(0.15, 0.085, 0.46, 26, 6, false);
+  const geometry = new THREE.CylinderGeometry(0.15, 0.085, 0.46, 32, 14, false);
+  const position = geometry.getAttribute("position");
+  const colors = new Float32Array(position.count * 3);
+
+  for (let i = 0; i < position.count; i += 1) {
+    const y = position.getY(i);
+    // Faint rings break up the stem into midbrain, pons and medulla.
+    const shade = 0.62 + 0.22 * Math.sin(y * 26);
+    colors[i * 3] = shade;
+    colors[i * 3 + 1] = shade;
+    colors[i * 3 + 2] = shade;
+  }
+
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.rotateX(-0.12);
   geometry.translate(0, -0.6, 0.06);
   geometry.computeVertexNormals();
@@ -248,7 +332,7 @@ export function BrainHologram({
       emissive.emissive?.set(accent);
     }
     for (const material of bodyMaterialsRef.current) {
-      material.color.copy(accent).multiplyScalar(0.18);
+      material.color.copy(accent).multiplyScalar(0.42);
       material.emissive.copy(accent);
     }
     for (const light of accentLightsRef.current) {
@@ -302,11 +386,12 @@ export function BrainHologram({
     scene.add(ambientLight, keyLight, fillLight, rimLight);
 
     const bodyMaterial = new THREE.MeshStandardMaterial({
-      color: accent.clone().multiplyScalar(0.18),
+      color: accent.clone().multiplyScalar(0.42),
       emissive: accent,
-      emissiveIntensity: 0.2,
-      roughness: 0.72,
-      metalness: 0.06,
+      emissiveIntensity: 0.14,
+      roughness: 0.66,
+      metalness: 0.05,
+      vertexColors: true,
       side: THREE.DoubleSide,
     });
     materials.push(bodyMaterial);
@@ -328,7 +413,7 @@ export function BrainHologram({
     });
     const pointMaterial = new THREE.PointsMaterial({
       color: accent,
-      size: 0.016,
+      size: 0.013,
       sizeAttenuation: true,
       transparent: true,
       opacity: 0.6,
@@ -516,6 +601,8 @@ export function BrainHologram({
       if (pointerInside && clickableRef.current) {
         marker.visible = true;
       }
+
+      paint();
 
       paint();
 
