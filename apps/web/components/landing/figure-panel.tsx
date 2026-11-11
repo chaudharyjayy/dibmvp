@@ -10,11 +10,12 @@
  * is clamped to the viewport between 400 and 700px. On mobile the canvas is
  * full-bleed and at least 50svh.
  *
- * Step 1 ships the frame and the label only — the Three.js scene lands in
- * step 2 and the dial/particles in step 3. The data-* hooks are what those
- * steps mount into, so the layout does not move again.
+ * Step 1 shipped the frame; step 2 mounts the code-generated figure. The dial
+ * and particles land in step 3. The data-* hooks are what those steps mount
+ * into, so the layout does not move again.
  */
 
+import GlassFigure from "./glass-figure";
 import { type } from "./type";
 
 export default function FigurePanel({ className = "" }: { className?: string }) {
@@ -25,12 +26,7 @@ export default function FigurePanel({ className = "" }: { className?: string }) 
           data-figure-canvas
           className="relative h-[max(420px,50svh)] w-full overflow-hidden bg-page md:h-[clamp(400px,calc(100svh-330px),700px)] md:rounded-[12px]"
         >
-          <p
-            data-figure-placeholder
-            className={`absolute inset-0 flex items-center justify-center text-ink-2/50 ${type.caption}`}
-          >
-            Figure renders here
-          </p>
+          <GlassFigure />
         </div>
 
         <div className="mt-4 px-2 md:mt-6 md:max-w-[560px] md:px-0">
