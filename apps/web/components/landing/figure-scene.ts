@@ -13,6 +13,7 @@
  */
 
 import * as THREE from "three";
+import { buildBrainGeometry, countBrainTriangles } from "./brain-geometry";
 import { EASE_OUT } from "./easing";
 import { curve, DIAL_HOURS, levelsAt, type OrganId, type OrganLevels } from "./dial";
 
@@ -98,6 +99,13 @@ const ORGAN_SEGMENTS: [number, number] = [24, 16];
 const OUTLINE_SCALE = 1.012; // 1.2%
 const CAMERA_FOV = 32;
 const CAMERA_Z = 6.4;
+
+/** World position of the head centre, matching buildHead(). */
+const HEAD_CENTRE = new THREE.Vector3(0, 0.745, 0);
+/** Half-extents of the head ellipsoid, matching buildHead()'s scale. */
+const HEAD_HALF_EXTENTS = new THREE.Vector3(0.075, 0.095, 0.082);
+/** How far the brain sits back in the skull, so it is not flush with the face. */
+const BRAIN_OFFSET = new THREE.Vector3(0, 0.002, -0.006);
 
 const COLORS = {
   body: 0xaeb9ca,
@@ -262,6 +270,54 @@ const OUTLINE_FRAGMENT = /* glsl */ `
   uniform vec3 uEdge;
   void main() {
     gl_FragColor = vec4(uEdge, 1.0);
+  }
+`;
+
+/**
+ * Brain shader: the same lit tissue look as the organs, plus a rim that
+ * traces the smooth pre-fold silhouette so the brain reads as a solid form
+ * inside the glass head rather than a flat shell.
+ */
+const BRAIN_VERTEX = /* glsl */ `
+  attribute vec3 baseNormal;
+  attribute float aTone;
+  varying vec3 vNormalW;
+  varying vec3 vBaseNormalW;
+  varying vec3 vViewDir;
+  varying float vTone;
+  void main() {
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vNormalW = normalize(mat3(modelMatrix) * normal);
+    vBaseNormalW = normalize(mat3(modelMatrix) * baseNormal);
+    vViewDir = normalize(cameraPosition - world.xyz);
+    vTone = aTone;
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+
+const BRAIN_FRAGMENT = /* glsl */ `
+  uniform vec3 uBase;
+  uniform vec3 uTint;
+  uniform vec3 uLightDir;
+  uniform float uLightIntensity;
+  varying vec3 vNormalW;
+  varying vec3 vBaseNormalW;
+  varying vec3 vViewDir;
+  varying float vTone;
+  void main() {
+    vec3 n = normalize(vNormalW);
+    // The per-vertex tone carries the sulcal shading: dark in the grooves,
+    // light on the gyral crowns.
+    float tone = clamp(vTone, 0.0, 1.0);
+    vec3 base = uBase * mix(0.55, 1.0, tone);
+    float lambert = clamp(dot(n, normalize(uLightDir)), 0.0, 1.0);
+    // A soft fill from the opposite side keeps the sulci from going black.
+    float fill = clamp(dot(n, -normalize(uLightDir)), 0.0, 1.0);
+    vec3 lit = base * (0.62 + 0.34 * lambert * uLightIntensity + 0.12 * fill);
+    // Rim on the smooth silhouette, not on the creases.
+    float rim = pow(1.0 - abs(dot(normalize(vBaseNormalW), normalize(vViewDir))), 2.4);
+    lit += uTint * rim * 0.3;
+    gl_FragColor = vec4(lit, 1.0);
   }
 `;
 
@@ -572,6 +628,46 @@ export function createFigureScene(
     centroid[2] = +(sz / PARTICLE_COUNT).toFixed(3);
   }
 
+  /* Brain ------------------------------------------------------------ */
+
+  // The brain sits inside the glass head: gyri, sulci and the cerebellum
+  // read through the translucent skull, the way the organs read through the
+  // torso.
+  const brainGeometry = buildBrainGeometry();
+  const brainMaterial = new THREE.ShaderMaterial({
+    vertexShader: BRAIN_VERTEX,
+    fragmentShader: BRAIN_FRAGMENT,
+    uniforms: {
+      uBase: { value: srgb(COLORS.base) },
+      uTint: { value: srgb(COLORS.tint) },
+      uLightDir: { value: directional.position.clone().normalize() },
+      uLightIntensity: { value: directional.intensity },
+    },
+  });
+
+  // The brain geometry is authored around its own origin, so it goes into a
+  // group that places it in the cranium and scales it to fit the skull.
+  const brainPivot = new THREE.Group();
+  brainPivot.position.copy(HEAD_CENTRE).add(BRAIN_OFFSET);
+  pivot.add(brainPivot);
+
+  // Fit the brain inside the head: the cranium is an ellipsoid of the given
+  // half-extents, so the brain is scaled to the tightest axis with a little
+  // clearance for the skull.
+  const brainHalf = brainGeometry.halfExtents;
+  const cranium = HEAD_HALF_EXTENTS;
+  const fit = Math.min(
+    (cranium.x * 0.88) / brainHalf.x,
+    (cranium.y * 0.88) / brainHalf.y,
+    (cranium.z * 0.88) / brainHalf.z,
+  );
+  brainPivot.scale.setScalar(fit);
+
+  for (const geometry of [brainGeometry.cerebrum, brainGeometry.cerebellum, brainGeometry.brainstem]) {
+    const mesh = new THREE.Mesh(geometry, brainMaterial);
+    mesh.renderOrder = 2; // with the organs, before the glass body veils them
+    brainPivot.add(mesh);
+  }
 
   /* Normalise: centre the figure and scale it to FIGURE_HEIGHT. -------- */
 
@@ -630,7 +726,8 @@ export function createFigureScene(
     (headGeometry.index ? headGeometry.index.count : headGeometry.attributes.position.count) / 3 +
     (neckGeometry.index ? neckGeometry.index.count : neckGeometry.attributes.position.count) / 3 +
     ((organGeometry.index ? organGeometry.index.count : organGeometry.attributes.position.count) / 3) *
-      ORGANS.length;
+      ORGANS.length +
+    countBrainTriangles(brainGeometry);
 
   let stats: FigureStats = {
     triangles: 0,
@@ -817,6 +914,8 @@ export function createFigureScene(
       document.removeEventListener("visibilitychange", onVisibility);
       bodyParts.forEach((part) => part.geometry.dispose());
       bodyMaterial.dispose();
+      brainGeometry.all.forEach((geometry) => geometry.dispose());
+      brainMaterial.dispose();
       organGeometry.dispose();
       organMaterial.dispose();
       outlineMaterial.dispose();
