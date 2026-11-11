@@ -23,14 +23,22 @@ import * as THREE from "three";
 /* Surface resolution                                                          */
 /* -------------------------------------------------------------------------- */
 
-/* The brain sits inside the head, which is about 5% of the frame height, so
- * the tessellation is sized for that: enough to hold the fold silhouette and
- * the sulcal shading, without spending the figure's triangle budget on
- * detail the head can never show. */
-const LAT_SEGMENTS = 44;
-const LON_SEGMENTS = 60;
-const CEREBELLUM_LAT = 16;
-const CEREBELLUM_LON = 24;
+/** Tessellation presets.
+ *
+ *  `scene` is sized for the brain inside the head, which is about 5% of the
+ *  frame height: enough to hold the fold silhouette and the sulcal shading,
+ *  without spending the figure's triangle budget on detail the head can
+ *  never show. `hero` is for a close-up render, where the folds are the
+ *  subject and every crease counts.
+ */
+export const BRAIN_DETAIL = {
+  scene: { lat: 44, lon: 60, cerebellumLat: 16, cerebellumLon: 24 },
+  hero: { lat: 168, lon: 232, cerebellumLat: 56, cerebellumLon: 84 },
+} as const;
+
+export type BrainDetail = keyof typeof BRAIN_DETAIL;
+
+type Detail = { lat: number; lon: number; cerebellumLat: number; cerebellumLon: number };
 
 /** Base cerebrum radii in brain-local units. */
 const RX = 0.72;
@@ -115,15 +123,19 @@ function foldField(x: number, y: number, z: number): FoldField {
   // its gradient collapse in places, which leaves wide plateaus beside dense
   // creases; domain warping keeps the ribbon spacing even while the direction
   // meanders.
-  const px = x + warp * 0.14 + warp2 * 0.05;
-  const py = y + warp * 0.12 - warp2 * 0.04;
-  const pz = z - warp * 0.13 + warp2 * 0.045;
+  const px = x + warp * 0.16 + warp2 * 0.06;
+  const py = y + warp * 0.13 - warp2 * 0.05;
+  const pz = z - warp * 0.14 + warp2 * 0.05;
 
-  // Gyri are long, meandering ribbons. One stripe family reads as cortex; two
-  // crossing families read as a waffle.
-  const phase = px * 13.6 + pz * 6.2 + py * 5.0;
-  const band = Math.abs(Math.sin(phase));
-  const sulcus = Math.pow(Math.max(0, 1 - band * 4.6), 2);
+  // Sulci are the zero set of a smooth 3D field: where the field crosses
+  // zero it draws a curve on the surface, and those curves branch and loop
+  // the way the sulcal network does. A single family of parallel ribbons
+  // reads as worms instead, so the network is what carries the folding.
+  const primary = fbm(px * 2.9, py * 2.9, pz * 2.9, 3);
+  const secondary = fbm(px * 5.7 + 4.1, py * 5.7 - 2.3, pz * 5.7 + 6.7, 2);
+  const groovePrimary = Math.exp(-Math.pow(primary / 0.105, 2));
+  const grooveSecondary = Math.exp(-Math.pow(secondary / 0.09, 2)) * 0.85;
+  const sulcus = Math.pow(Math.max(groovePrimary, grooveSecondary), 1.4);
 
   // Low-frequency regional swell and fine cortical texture.
   const broad = fbm(x * 2.4 + warp * 0.6, y * 2.4, z * 2.4, 3);
@@ -264,7 +276,7 @@ function cerebrumPoint(
 }
 
 /** Solid cortical surface. */
-function buildCerebrumGeometry(): THREE.BufferGeometry {
+function buildCerebrumGeometry(detail: Detail): THREE.BufferGeometry {
   const positions: number[] = [];
   const tones: number[] = [];
   const baseNormals: number[] = [];
@@ -273,11 +285,11 @@ function buildCerebrumGeometry(): THREE.BufferGeometry {
   const base = new THREE.Vector3();
   const shade = { value: 0.6 };
 
-  for (let i = 0; i <= LAT_SEGMENTS; i += 1) {
-    const lat = -Math.PI / 2 + (i / LAT_SEGMENTS) * Math.PI;
+  for (let i = 0; i <= detail.lat; i += 1) {
+    const lat = -Math.PI / 2 + (i / detail.lat) * Math.PI;
     const cosLat = Math.cos(lat);
-    for (let j = 0; j <= LON_SEGMENTS; j += 1) {
-      const lon = (j / LON_SEGMENTS) * Math.PI * 2;
+    for (let j = 0; j <= detail.lon; j += 1) {
+      const lon = (j / detail.lon) * Math.PI * 2;
       cerebrumPoint(
         cosLat * Math.cos(lon),
         Math.sin(lat),
@@ -293,9 +305,9 @@ function buildCerebrumGeometry(): THREE.BufferGeometry {
     }
   }
 
-  const stride = LON_SEGMENTS + 1;
-  for (let i = 0; i < LAT_SEGMENTS; i += 1) {
-    for (let j = 0; j < LON_SEGMENTS; j += 1) {
+  const stride = detail.lon + 1;
+  for (let i = 0; i < detail.lat; i += 1) {
+    for (let j = 0; j < detail.lon; j += 1) {
       const a = i * stride + j;
       const b = a + stride;
       indices.push(a, b, a + 1, b, b + 1, a + 1);
@@ -317,17 +329,17 @@ function buildCerebrumGeometry(): THREE.BufferGeometry {
 /* -------------------------------------------------------------------------- */
 
 /** Ridged cerebellar mass with transverse folia and a midline vermis. */
-function buildCerebellumGeometry(): THREE.BufferGeometry {
+function buildCerebellumGeometry(detail: Detail): THREE.BufferGeometry {
   const positions: number[] = [];
   const tones: number[] = [];
   const baseNormals: number[] = [];
   const indices: number[] = [];
 
-  for (let i = 0; i <= CEREBELLUM_LAT; i += 1) {
-    const lat = -Math.PI / 2 + (i / CEREBELLUM_LAT) * Math.PI;
+  for (let i = 0; i <= detail.cerebellumLat; i += 1) {
+    const lat = -Math.PI / 2 + (i / detail.cerebellumLat) * Math.PI;
     const cosLat = Math.cos(lat);
-    for (let j = 0; j <= CEREBELLUM_LON; j += 1) {
-      const lon = (j / CEREBELLUM_LON) * Math.PI * 2;
+    for (let j = 0; j <= detail.cerebellumLon; j += 1) {
+      const lon = (j / detail.cerebellumLon) * Math.PI * 2;
       const nx = cosLat * Math.cos(lon);
       const ny = Math.sin(lat);
       const nz = cosLat * Math.sin(lon);
@@ -353,9 +365,9 @@ function buildCerebellumGeometry(): THREE.BufferGeometry {
     }
   }
 
-  const stride = CEREBELLUM_LON + 1;
-  for (let i = 0; i < CEREBELLUM_LAT; i += 1) {
-    for (let j = 0; j < CEREBELLUM_LON; j += 1) {
+  const stride = detail.cerebellumLon + 1;
+  for (let i = 0; i < detail.cerebellumLat; i += 1) {
+    for (let j = 0; j < detail.cerebellumLon; j += 1) {
       const a = i * stride + j;
       const b = a + stride;
       indices.push(a, b, a + 1, b, b + 1, a + 1);
@@ -424,9 +436,10 @@ export interface BrainGeometry {
  *  cranium without compensating for the cerebellum and brainstem hanging
  *  below and behind the cerebrum.
  */
-export function buildBrainGeometry(): BrainGeometry {
-  const cerebrum = buildCerebrumGeometry();
-  const cerebellum = buildCerebellumGeometry();
+export function buildBrainGeometry(detail: BrainDetail = "scene"): BrainGeometry {
+  const resolution = BRAIN_DETAIL[detail];
+  const cerebrum = buildCerebrumGeometry(resolution);
+  const cerebellum = buildCerebellumGeometry(resolution);
   const brainstem = buildBrainstemGeometry();
   const all = [cerebrum, cerebellum, brainstem];
 
