@@ -131,8 +131,9 @@ export default function GlassFigure({ onScene }: GlassFigureProps) {
         ref={canvasRef}
         tabIndex={0}
         role="img"
-        aria-label="A see-through human figure with organs that tint as drug level rises. Drag, or press the left and right arrow keys, to turn it."
-        className="block h-full w-full touch-pan-y select-none outline-none focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
+        aria-label="A see-through human figure whose organs tint as the illustrative drug level rises."
+        aria-describedby="figure-help"
+        className="block h-full w-full touch-pan-y select-none focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -140,11 +141,19 @@ export default function GlassFigure({ onScene }: GlassFigureProps) {
         onKeyDown={onKeyDown}
       />
 
+      {/* The figure carries no data of its own: the dial is the control and the
+          level it sets is what the organs show. Saying that here stops the
+          rotation from reading as a control the visitor is missing. */}
+      <p id="figure-help" className="sr-only">
+        Turn it with a drag, the left and right arrow keys, or the two buttons beside it. Turning
+        only changes the view; the time dial under the figure changes the drug level.
+      </p>
+
       <button
         type="button"
         aria-label="Turn the figure left"
         onClick={() => turn(-1)}
-        className="absolute left-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-white/90 text-ink-2 outline-none transition-colors hover:border-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:left-3"
+        className="absolute left-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-white/90 text-ink-2 transition-colors hover:border-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:left-3"
       >
         <ChevronLeft className="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
       </button>
@@ -153,7 +162,7 @@ export default function GlassFigure({ onScene }: GlassFigureProps) {
         type="button"
         aria-label="Turn the figure right"
         onClick={() => turn(1)}
-        className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-white/90 text-ink-2 outline-none transition-colors hover:border-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:right-3"
+        className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-white/90 text-ink-2 transition-colors hover:border-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:right-3"
       >
         <ChevronRight className="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
       </button>

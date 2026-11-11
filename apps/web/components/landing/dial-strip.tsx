@@ -224,6 +224,13 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
       className="landing-load mt-4 px-2 md:mt-6 md:max-w-[560px] md:px-0"
       style={riseStyle(LOAD.dial.delay, LOAD.dial.duration, LOAD.dial.y)}
     >
+      <p id="dial-help" className="sr-only">
+        Moves the illustrative drug level through twelve hours. Use the arrow keys for a quarter of
+        an hour, Page Up and Page Down for an hour, and Home or End for either end. The same hours
+        are what the figure and the graph show. While it has focus, scrolling the page stops moving
+        it, so the hours you set stay put.
+      </p>
+
       <div
         data-dial-sparkline
         className="relative h-[56px] w-full overflow-hidden rounded-t-[12px] border border-b-0 border-line bg-surface px-3 md:h-[72px]"
@@ -270,12 +277,17 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
         role="slider"
         tabIndex={0}
         aria-label="Illustrative time, in hours"
+        aria-orientation="horizontal"
+        aria-describedby="dial-help dial-note"
         aria-valuemin={0}
         aria-valuemax={DIAL_HOURS}
         aria-valuenow={0}
         aria-valuetext="0.0 hours"
         data-dial-value="0.00"
-        className="relative h-11 w-full cursor-ew-resize touch-none select-none rounded-b-[12px] border border-line bg-white outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-14"
+        /* pan-y, not none: a vertical swipe that starts on the strip must still
+           scroll the page. The browser cancels the pointer stream when it takes
+           over a vertical pan, so horizontal drags are unaffected. */
+        className="relative h-11 w-full cursor-ew-resize touch-pan-y select-none rounded-b-[12px] border border-line bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-14"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -299,7 +311,10 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
         />
       </div>
 
-      <p className="mt-3 font-mono text-[12px] leading-4 tracking-[0.08em] text-ink-2 md:mt-4">
+      <p
+        id="dial-note"
+        className="mt-3 font-mono text-[12px] leading-4 tracking-[0.08em] text-ink-2 md:mt-4"
+      >
         Illustrative shape, not a real drug.
       </p>
     </div>

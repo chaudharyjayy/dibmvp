@@ -88,6 +88,9 @@ export default function Hero() {
   const phaseRef = useRef(0);
   const endRef = useRef(false);
 
+  /** What the polite live region announces; null outside the pinned phases. */
+  const announcement = phase > 0 && phase <= PHASES.length ? PHASES[phase - 1] : null;
+
   const handleScene = useCallback((scene: FigureScene | null) => {
     sceneRef.current = scene;
     scaleRef.current =
@@ -146,6 +149,29 @@ export default function Hero() {
     let lastScale = "";
     let raf = 0;
 
+    /* Who owns the dial. Scroll moves it during the pin, but the moment the
+       visitor takes it — Tab or a tap puts focus on the strip, a drag or an
+       arrow key changes it — writing scroll's hour over theirs would make the
+       control look broken. They keep it until focus or the next tap goes
+       somewhere else. */
+    const onStrip = (node: EventTarget | null) =>
+      node instanceof Element && Boolean(node.closest("[data-dial-strip]"));
+    let dialHeld = false;
+    const takeDial = (event: Event) => {
+      if (onStrip(event.target)) dialHeld = true;
+    };
+    const releaseDial = (event: Event) => {
+      if (!onStrip(event.target)) dialHeld = false;
+    };
+    const leaveDial = (event: Event) => {
+      if (onStrip(event.target)) dialHeld = false;
+    };
+    document.addEventListener("focusin", takeDial, true);
+    document.addEventListener("focusin", releaseDial, true);
+    document.addEventListener("focusout", leaveDial, true);
+    document.addEventListener("keydown", takeDial, true);
+    document.addEventListener("pointerdown", releaseDial, true);
+
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const wrapper = wrapperRef.current;
@@ -158,17 +184,22 @@ export default function Hero() {
       const span = wrapper.offsetHeight - stage.offsetHeight;
       const p = span > 0 ? clamp01(-rect.top / span) : 0;
 
-      /* Copy fades, figure slides to centre and scales up. */
+      /* Copy fades, figure slides to centre and scales up. Under reduced motion
+         the fade stays (it is not movement) and everything else holds still:
+         the lift, the slide and the scale are decorative parallax. */
+      const still = reduced.matches;
       const fade = clamp01(p / P_FADE_END);
       if (textRef.current) {
         textRef.current.style.opacity = String(1 - fade);
-        textRef.current.style.transform = `translate3d(0, ${(-24 * fade).toFixed(2)}px, 0)`;
+        textRef.current.style.transform = `translate3d(0, ${
+          still ? 0 : (-24 * fade).toFixed(2)
+        }px, 0)`;
         // Once it is invisible it must also be unclickable and unreachable by
         // Tab; inert does both without a second disabled state to keep in sync.
         textRef.current.inert = fade > 0.5;
       }
 
-      const slide = EASE_OUT(fade);
+      const slide = still ? 0 : EASE_OUT(fade);
       if (figureRef.current) {
         const { dx, dy } = geomRef.current;
         const translate = `translate3d(${(dx * slide).toFixed(1)}px, ${(dy * slide).toFixed(
@@ -181,8 +212,10 @@ export default function Hero() {
       }
       if (scaleRef.current) {
         /* No CSS scale on mobile: growing a full-bleed canvas pushes its bottom
-           under the dial strip. The camera zoom still moves the figure in. */
-        const scale = compactRef.current ? "" : `scale(${(1 + 0.12 * slide).toFixed(3)})`;
+           under the dial strip. The camera zoom still moves the figure in.
+           None under reduced motion, for the same reason as the slide. */
+        const scale =
+          compactRef.current || still ? "" : `scale(${(1 + 0.12 * slide).toFixed(3)})`;
         if (scale !== lastScale) {
           scaleRef.current.style.transform = scale;
           lastScale = scale;
@@ -197,20 +230,29 @@ export default function Hero() {
       sceneRef.current?.setGlow(glow);
 
       /* Dial: scroll owns it until the last phase ends, then it is the
-         visitor's again (drag and keys work without a fight from scroll). */
+         visitor's again (drag and keys work without a fight from scroll).
+         While the strip itself holds focus the visitor owns it: a phone tap
+         and a keyboard arrow both focus it, and writing scroll's value over
+         theirs would make the control look broken. Scroll resumes on blur. */
+      const active = document.activeElement;
+      const held = dialHeld || (active instanceof Element && active.hasAttribute("data-dial-strip"));
       if (p >= P_ELIMINATE_END) {
         if (!unlocked) {
           unlocked = true;
           dialValue = DIAL_HOURS;
-          dialRef.current?.setTime(DIAL_HOURS);
-          sceneRef.current?.setTime(DIAL_HOURS);
+          if (!held) {
+            dialRef.current?.setTime(DIAL_HOURS);
+            sceneRef.current?.setTime(DIAL_HOURS);
+          }
         }
       } else {
         unlocked = false;
         const goal = dialTarget(p);
         dialValue += (goal - dialValue) * (reduced.matches ? 1 : 0.12);
-        dialRef.current?.setTime(dialValue);
-        sceneRef.current?.setTime(dialValue);
+        if (!held) {
+          dialRef.current?.setTime(dialValue);
+          sceneRef.current?.setTime(dialValue);
+        }
       }
 
       /* Phase captions and the closing call to action. */
@@ -227,7 +269,14 @@ export default function Hero() {
     };
 
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("focusin", takeDial, true);
+      document.removeEventListener("focusin", releaseDial, true);
+      document.removeEventListener("focusout", leaveDial, true);
+      document.removeEventListener("keydown", takeDial, true);
+      document.removeEventListener("pointerdown", releaseDial, true);
+    };
   }, []);
 
   return (
@@ -273,14 +322,14 @@ export default function Hero() {
           >
             <Link
               href="/simulator"
-              className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-ink px-6 text-[15px] font-medium text-white outline-none transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
+              className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-ink px-6 text-[15px] font-medium text-white transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
             >
               Try the simulator
             </Link>
 
             <Link
               href="/how-it-works"
-              className="rounded-[10px] text-[15px] font-medium text-ink-2 outline-none transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+              className="inline-flex min-h-6 items-center rounded-[10px] text-[15px] font-medium text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
             >
               How does this work <span aria-hidden="true">→</span>
             </Link>
@@ -330,6 +379,16 @@ export default function Hero() {
                 </div>
               </div>
 
+              {/* The captions swap on scroll, which a screen reader cannot see
+                  and a keyboard user only hears if something says so. Polite,
+                  and short: the number and the title are the phase; the body
+                  follows so the announcement is not a teaser. */}
+              <p role="status" aria-atomic="true" className="sr-only">
+                {announcement
+                  ? `Phase ${announcement.number} of 03, ${announcement.title}. ${announcement.body}`
+                  : ""}
+              </p>
+
               <div
                 data-hero-end
                 aria-hidden={!atEnd}
@@ -342,14 +401,14 @@ export default function Hero() {
                   <Link
                     href="/simulator"
                     tabIndex={atEnd ? 0 : -1}
-                    className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-ink px-6 text-[15px] font-medium text-white outline-none transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
+                    className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-ink px-6 text-[15px] font-medium text-white transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
                   >
                     Try the simulator
                   </Link>
                   <Link
                     href="/how-it-works"
                     tabIndex={atEnd ? 0 : -1}
-                    className="rounded-[10px] text-[15px] font-medium text-ink-2 outline-none transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+                    className="inline-flex min-h-6 items-center rounded-[10px] text-[15px] font-medium text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
                   >
                     How does this work <span aria-hidden="true">→</span>
                   </Link>
