@@ -147,6 +147,38 @@ body {
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Landing load sequence. Unlayered so it wins over the utilities layer without
+   !important. Delay, duration and lift distance come from components/landing/load.ts. */
+@keyframes landing-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--rise-y, 16px), 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.landing-load {
+  animation: landing-rise var(--rise-duration, 560ms) cubic-bezier(0.22, 1, 0.36, 1)
+    var(--rise-delay, 0ms) both;
+}
+
+/* Reduced motion: no entrance movement, no cross-fade travel. The content is
+   simply there, and the phase captions swap without sliding. */
+@media (prefers-reduced-motion: reduce) {
+  .landing-load {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .landing-fade {
+    transition: none;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -1,8 +1,10 @@
 "use client";
 
 /**
- * The time dial: a 72px sparkline of the illustrative shape, and a 56px strip
- * the visitor drags (or arrows through) to move time from 0 to 12 hours.
+ * The time dial: a sparkline of the illustrative shape (72px from md up, 56px
+ * on mobile) and a strip the visitor drags (or arrows through) to move time
+ * from 0 to 12 hours. The mobile strip is 44px tall — the spec's tap target —
+ * and 56px on desktop.
  *
  * It owns the hour value and reports it upward with `onTime`; the figure scene
  * tints organs and releases particles from the same curve in `dial.ts`. The
@@ -17,6 +19,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { DIAL_HOURS, curve } from "./dial";
 import { EASE_IN_OUT } from "./easing";
+import { LOAD, riseStyle } from "./load";
 
 export type DialHandle = {
   /** Move the dial to an hour without reporting it back through onTime. */
@@ -216,10 +219,14 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
   );
 
   return (
-    <div className="mt-4 px-2 md:mt-6 md:max-w-[560px] md:px-0">
+    <div
+      data-load="dial"
+      className="landing-load mt-4 px-2 md:mt-6 md:max-w-[560px] md:px-0"
+      style={riseStyle(LOAD.dial.delay, LOAD.dial.duration, LOAD.dial.y)}
+    >
       <div
         data-dial-sparkline
-        className="relative h-[72px] w-full overflow-hidden rounded-t-[12px] border border-b-0 border-line bg-surface px-3"
+        className="relative h-[56px] w-full overflow-hidden rounded-t-[12px] border border-b-0 border-line bg-surface px-3 md:h-[72px]"
       >
         <div className="absolute inset-x-3 top-1.5 flex items-baseline justify-between font-mono text-[12px] leading-4 tracking-[0.08em] text-ink-2">
           <span>0 h</span>
@@ -232,7 +239,7 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
           viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
           preserveAspectRatio="none"
           aria-hidden="true"
-          className="absolute inset-x-3 top-[22px] h-[46px] w-[calc(100%-1.5rem)]"
+          className="absolute inset-x-3 top-[20px] h-[32px] w-[calc(100%-1.5rem)] md:top-[22px] md:h-[46px]"
         >
           <path d={SPARK_FILL} fill="var(--accent)" opacity="0.08" />
           <path
@@ -268,7 +275,7 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
         aria-valuenow={0}
         aria-valuetext="0.0 hours"
         data-dial-value="0.00"
-        className="relative h-14 w-full cursor-ew-resize touch-none select-none rounded-b-[12px] border border-line bg-white outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        className="relative h-11 w-full cursor-ew-resize touch-none select-none rounded-b-[12px] border border-line bg-white outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-14"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -292,7 +299,7 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
         />
       </div>
 
-      <p className="mt-4 font-mono text-[12px] leading-4 tracking-[0.08em] text-ink-2">
+      <p className="mt-3 font-mono text-[12px] leading-4 tracking-[0.08em] text-ink-2 md:mt-4">
         Illustrative shape, not a real drug.
       </p>
     </div>
