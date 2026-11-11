@@ -72,7 +72,24 @@ machine has no network access to openFDA.
 
 ## State at handoff
 
-Landing rebuild, steps 1–6, is complete on `main`:
+Landing rebuild, steps 1–6, is complete on `main`, and the procedural brain
+sits inside the glass head (PR #1). After that, the in-code figure was replaced
+by the Blender anatomy model (`32f90e5` for the export pipeline, then the
+scene commit on top):
+
+- Source: `assets/anatomy/human_anatomy.blend` (+ `assets/anatomy/anatomy.py`,
+  the script that builds it). Export: `scripts/anatomy/export-web.py` →
+  `apps/web/public/models/human_anatomy.glb`.
+- Budget: 94,626 triangles, ~1.7 MB. Replaces the generated lathe figure
+  (was ~11k triangles). `geometryTriangles` in `getStats()` reports the GLB's
+  count.
+- The GLB has no digestive tract, so `stomach` and `gut` have no mesh to tint.
+  Phase 01 (absorption) is carried by the particles leaving the abdominal
+  source; the liver, lungs, heart, kidneys and the vessels carry the blood /
+  kidney-lag level. If the absorption phase must show an organ, the model
+  needs a gut added in Blender, or the caption has to say it is not shown.
+- The body is the model's mesh with the same Fresnel shader as before; brain is
+  now the model's brain (rim shader), no longer a procedural one.
 
 | Step | Commit | Content |
 | --- | --- | --- |

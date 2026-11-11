@@ -1,19 +1,26 @@
 /**
- * Glass figure — a see-through human generated entirely in code.
+ * Glass figure — the Blender anatomy model, loaded from a GLB.
  *
- * No model files, no images, no video: a lathe torso, a sphere head, a neck
- * tube and eight ellipsoid organs, lit by one hemisphere and one directional
- * light. The torso is a Fresnel shell so the organs read through it; each
- * organ is tinted toward the accent by its current level.
+ * No procedural lathe, no code-generated organs: the figure is
+ * `assets/anatomy/human_anatomy.blend` exported to `models/human_anatomy.glb`
+ * (94,626 triangles, ~1.6 MB). The .blend stays the source of truth; regenerate
+ * the GLB with `scripts/anatomy/export-web.py`.
  *
- * Everything here is framework-free and returns a handle; the React component
- * owns the DOM and forwards pointer/keyboard input. See the spec in the
- * landing rebuild notes for the constants (fov 32°, z 6.4, alpha
- * mix(0.05, 0.5, pow(1 - |n·v|, 2.2)), etc).
+ * What the model does not have matters as much as what it does. There is no
+ * digestive tract in it, so `stomach` and `gut` from `levelsAt()` have no mesh
+ * to tint: the absorption phase is carried by the particles leaving the
+ * abdominal point and by the blood level rising through the heart, lungs and
+ * vessels. The liver, kidneys, lungs and heart tint from the same
+ * illustrative curve.
+ *
+ * Everything around the model is unchanged: the Fresnel shell for the body, the
+ * particle loop, the camera/orbit/zoom contract, reduced motion, the 30fps
+ * throttle and the pause-off-screen behaviour. The public handle is identical,
+ * so hero.tsx and the probes do not need to change.
  */
 
 import * as THREE from "three";
-import { buildBrainGeometry, countBrainTriangles } from "./brain-geometry";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { EASE_OUT } from "./easing";
 import { curve, DIAL_HOURS, levelsAt, type OrganId, type OrganLevels } from "./dial";
 
@@ -22,12 +29,12 @@ export type { OrganId };
 export type FigureLevels = OrganLevels;
 
 export type FigureStats = {
-  /** Triangles submitted in the last rendered frame (includes the outline pass). */
+  /** Triangles submitted in the last rendered frame. */
   triangles: number;
   /** Draw calls in the last rendered frame. */
   drawCalls: number;
   points: number;
-  /** Unique triangles in the figure's geometry, outline pass excluded. */
+  /** Unique triangles in the loaded GLB — the real measurement for this page. */
   geometryTriangles: number;
   /** Current yaw about the vertical axis, in radians. */
   yaw: number;
@@ -44,11 +51,7 @@ export type FigureStats = {
   renderMs: number;
   /** EMA of the time between animation frames, in ms. */
   frameMs: number;
-  /**
-   * Mean particle position in the figure's local units, for verification.
-   * At t=0 it sits inside the gut (y ≈ 0.115); as the dose is absorbed it
-   * climbs the circulation loop.
-   */
+  /** Mean particle position in the pivot's local units (metres). */
   particleCentroid: [number, number, number];
 };
 
@@ -60,19 +63,13 @@ export type FigureSceneOptions = {
 
 export type FigureScene = {
   setLevels(levels: FigureLevels): void;
-  /**
-   * Move the dial to `hours` on the 0–12 h axis: tints the organs and releases
-   * the particles, both from the shared illustrative curve in `dial.ts`.
-   */
+  /** Move the dial to `hours` on the 0–12 h axis. */
   setTime(hours: number): void;
   /** Camera orbit about the subject, in radians. 0 = straight on. */
   setOrbit(radians: number): void;
   /** Camera distance from the subject. Spec hero value is 6.4. */
   setZoom(z: number): void;
-  /**
-   * 0–1 brightness boost on the circulating particles, used by the
-   * "distribution" phase so the circulation reads as the active path.
-   */
+  /** 0–1 brightness boost on the circulating particles. */
   setGlow(amount: number): void;
   /** Animated yaw nudge (chevrons, arrow keys). */
   turnBy(radians: number, ms: number): void;
@@ -84,35 +81,25 @@ export type FigureScene = {
   dispose(): void;
 };
 
-/* ------------------------------------------------------------------ */
-/* Constants                                                           */
-/* ------------------------------------------------------------------ */
-
-const FIGURE_HEIGHT = 3.05; // world units; the frame at z=6.4, fov 32° is 3.67 tall
+const FIGURE_HEIGHT = 3.05; // world units; fits the spec's fov-32 frame at z=6.4
 const AUTO_ROTATE = 0.12; // rad/s
 const DAMPING = 0.92; // per frame, applied to drag velocity
 const PITCH_LIMIT = (15 * Math.PI) / 180;
-const TORSO_SEGMENTS = 48;
-const TORSO_PROFILE_POINTS = 40;
-const HEAD_SEGMENTS: [number, number] = [32, 24];
-const ORGAN_SEGMENTS: [number, number] = [24, 16];
-const OUTLINE_SCALE = 1.012; // 1.2%
 const CAMERA_FOV = 32;
 const CAMERA_Z = 6.4;
 
-/** World position of the head centre, matching buildHead(). */
-const HEAD_CENTRE = new THREE.Vector3(0, 0.745, 0);
-/** Half-extents of the head ellipsoid, matching buildHead()'s scale. */
-const HEAD_HALF_EXTENTS = new THREE.Vector3(0.075, 0.095, 0.082);
-/** How far the brain sits back in the skull, so it is not flush with the face. */
-const BRAIN_OFFSET = new THREE.Vector3(0, 0.002, -0.006);
-
 const COLORS = {
   body: 0xaeb9ca,
-  base: 0xd7dee8,
   tint: 0x2563eb,
-  edge: 0xb8c2d1,
-  shadow: 0x0e1116,
+  // Base colours as they came out of the .blend, as raw sRGB components.
+  brain: 0x9e4d4d, // (0.62, 0.30, 0.30)
+  airway: 0xdbe0eb, // (0.86, 0.88, 0.92)
+  heart: 0x4d0304, // (0.30, 0.012, 0.016)
+  kidney: 0x420a08, // (0.26, 0.04, 0.032)
+  liver: 0x330805, // (0.20, 0.032, 0.018)
+  lung: 0xb23338, // (0.70, 0.20, 0.22)
+  artery: 0x8c0505, // (0.55, 0.02, 0.02)
+  vein: 0x0a1266, // (0.04, 0.07, 0.40)
 } as const;
 
 /** Raw sRGB components — custom shaders write straight to the framebuffer. */
@@ -124,83 +111,7 @@ function srgb(hex: number): THREE.Color {
   );
 }
 
-/** cubic-bezier(0.22, 1, 0.36, 1) — the single easing used across the page. */
 const ease = EASE_OUT;
-
-/* ------------------------------------------------------------------ */
-/* Geometry                                                            */
-/* ------------------------------------------------------------------ */
-
-/** Torso silhouette as (radius, height) in metres, hip to neck base. */
-const TORSO_PROFILE: ReadonlyArray<readonly [number, number]> = [
-  [0.145, 0.0],
-  [0.165, 0.06],
-  [0.135, 0.18],
-  [0.155, 0.3],
-  [0.185, 0.42],
-  [0.195, 0.5],
-  [0.17, 0.54],
-  [0.075, 0.55],
-];
-
-type OrganSpec = {
-  id: OrganId;
-  position: readonly [number, number, number];
-  scale: readonly [number, number, number];
-};
-
-/** Eight ellipsoid organs, hip-to-shoulder. Two lungs, two kidneys. */
-const ORGANS: ReadonlyArray<OrganSpec> = [
-  { id: "lungs", position: [-0.075, 0.42, 0.0], scale: [0.055, 0.1, 0.05] },
-  { id: "lungs", position: [0.075, 0.42, 0.0], scale: [0.055, 0.1, 0.05] },
-  { id: "heart", position: [-0.018, 0.33, 0.035], scale: [0.045, 0.052, 0.042] },
-  { id: "stomach", position: [0.065, 0.245, 0.02], scale: [0.052, 0.036, 0.036] },
-  { id: "liver", position: [-0.05, 0.19, 0.02], scale: [0.07, 0.042, 0.052] },
-  { id: "gut", position: [0.0, 0.115, 0.012], scale: [0.085, 0.055, 0.05] },
-  { id: "kidneys", position: [-0.068, 0.205, -0.05], scale: [0.028, 0.045, 0.026] },
-  { id: "kidneys", position: [0.068, 0.205, -0.05], scale: [0.028, 0.045, 0.026] },
-];
-
-function buildTorso(): THREE.LatheGeometry {
-  const spline = new THREE.SplineCurve(
-    TORSO_PROFILE.map(([r, y]) => new THREE.Vector2(r, y))
-  ).getPoints(TORSO_PROFILE_POINTS - 2); // 39 points
-  const profile = [new THREE.Vector2(0, 0), ...spline]; // capped hip, 40 points
-  return new THREE.LatheGeometry(profile, TORSO_SEGMENTS);
-}
-
-function buildHead(): THREE.SphereGeometry {
-  const geometry = new THREE.SphereGeometry(1, HEAD_SEGMENTS[0], HEAD_SEGMENTS[1]);
-  geometry.scale(0.075, 0.095, 0.082);
-  geometry.translate(0, 0.745, 0);
-  return geometry;
-}
-
-function buildNeck(): THREE.CylinderGeometry {
-  const geometry = new THREE.CylinderGeometry(0.056, 0.072, 0.1, 16, 1, true);
-  geometry.translate(0, 0.6, 0);
-  return geometry;
-}
-
-/** Soft radial contact shadow, drawn to a canvas so there is no image asset. */
-function buildShadowTexture(): THREE.CanvasTexture {
-  const size = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    gradient.addColorStop(0, "rgba(14,17,22,0.18)");
-    gradient.addColorStop(0.5, "rgba(14,17,22,0.09)");
-    gradient.addColorStop(1, "rgba(14,17,22,0)");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, size, size);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
 
 /* ------------------------------------------------------------------ */
 /* Shaders                                                             */
@@ -228,29 +139,26 @@ const BODY_FRAGMENT = /* glsl */ `
   }
 `;
 
+/* One lit-with-tint shader for every organ, but with the level as a uniform:
+   the GLB organs are plain meshes, not an InstancedMesh. */
 const ORGAN_VERTEX = /* glsl */ `
-  attribute float aLevel;
   varying vec3 vNormalW;
-  varying float vLevel;
   void main() {
-    vLevel = aLevel;
-    mat4 model = modelMatrix * instanceMatrix;
-    vec4 world = model * vec4(position, 1.0);
-    vNormalW = normalize(mat3(model) * normal);
-    gl_Position = projectionMatrix * viewMatrix * world;
+    vNormalW = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
 const ORGAN_FRAGMENT = /* glsl */ `
   uniform vec3 uBase;
   uniform vec3 uTint;
+  uniform float uLevel;
   uniform vec3 uLightDir;
   uniform float uLightIntensity;
   varying vec3 vNormalW;
-  varying float vLevel;
   void main() {
     vec3 n = normalize(vNormalW);
-    float level = clamp(vLevel, 0.0, 1.0);
+    float level = clamp(uLevel, 0.0, 1.0);
     vec3 base = mix(uBase, uTint, pow(level, 0.8));
     float lambert = clamp(dot(n, normalize(uLightDir)), 0.0, 1.0);
     vec3 lit = base * (0.62 + 0.38 * lambert * uLightIntensity);
@@ -259,38 +167,16 @@ const ORGAN_FRAGMENT = /* glsl */ `
   }
 `;
 
-const OUTLINE_VERTEX = /* glsl */ `
-  void main() {
-    vec3 expanded = position * ${OUTLINE_SCALE.toFixed(4)};
-    gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(expanded, 1.0);
-  }
-`;
-
-const OUTLINE_FRAGMENT = /* glsl */ `
-  uniform vec3 uEdge;
-  void main() {
-    gl_FragColor = vec4(uEdge, 1.0);
-  }
-`;
-
-/**
- * Brain shader: the same lit tissue look as the organs, plus a rim that
- * traces the smooth pre-fold silhouette so the brain reads as a solid form
- * inside the glass head rather than a flat shell.
- */
+/* Brain: the tissue look, plus a Fresnel rim so the folds read as a solid form
+   inside the glass head. The GLB carries no per-vertex tone, so the tone
+   term is gone; the rim does the same job. */
 const BRAIN_VERTEX = /* glsl */ `
-  attribute vec3 baseNormal;
-  attribute float aTone;
   varying vec3 vNormalW;
-  varying vec3 vBaseNormalW;
   varying vec3 vViewDir;
-  varying float vTone;
   void main() {
     vec4 world = modelMatrix * vec4(position, 1.0);
     vNormalW = normalize(mat3(modelMatrix) * normal);
-    vBaseNormalW = normalize(mat3(modelMatrix) * baseNormal);
     vViewDir = normalize(cameraPosition - world.xyz);
-    vTone = aTone;
     gl_Position = projectionMatrix * viewMatrix * world;
   }
 `;
@@ -301,28 +187,105 @@ const BRAIN_FRAGMENT = /* glsl */ `
   uniform vec3 uLightDir;
   uniform float uLightIntensity;
   varying vec3 vNormalW;
-  varying vec3 vBaseNormalW;
   varying vec3 vViewDir;
-  varying float vTone;
   void main() {
     vec3 n = normalize(vNormalW);
-    // The per-vertex tone carries the sulcal shading: dark in the grooves,
-    // light on the gyral crowns.
-    float tone = clamp(vTone, 0.0, 1.0);
-    vec3 base = uBase * mix(0.55, 1.0, tone);
     float lambert = clamp(dot(n, normalize(uLightDir)), 0.0, 1.0);
-    // A soft fill from the opposite side keeps the sulci from going black.
     float fill = clamp(dot(n, -normalize(uLightDir)), 0.0, 1.0);
-    vec3 lit = base * (0.62 + 0.34 * lambert * uLightIntensity + 0.12 * fill);
-    // Rim on the smooth silhouette, not on the creases.
-    float rim = pow(1.0 - abs(dot(normalize(vBaseNormalW), normalize(vViewDir))), 2.4);
+    vec3 lit = uBase * (0.62 + 0.34 * lambert * uLightIntensity + 0.12 * fill);
+    float rim = pow(1.0 - abs(dot(n, normalize(vViewDir))), 2.4);
     lit += uTint * rim * 0.3;
     gl_FragColor = vec4(lit, 1.0);
   }
 `;
 
 /* ------------------------------------------------------------------ */
-/* Particles                                                           */
+/* GLB layout                                                           */
+/* ------------------------------------------------------------------ */
+
+/** Node names as the glTF exporter wrote them. Names are the contract. */
+const GLB = {
+  body: "Body",
+  heart: ["Heart"],
+  liver: ["Liver"],
+  lungs: ["Lung_L", "Lung_R"],
+  kidneys: ["Kidney_L", "Kidney_R"],
+  brain: ["Brain_L", "Brain_R", "Cerebellum", "BrainStem"],
+  airway: ["Trachea", "Bronchus_L", "Bronchus_R"],
+  vessels: [
+    "Aorta",
+    "Carotid_L",
+    "Carotid_R",
+    "VenaCava_Inf",
+    "VenaCava_Sup",
+    "PulmonaryTrunk",
+    "PulmonaryArtery_L",
+    "PulmonaryArtery_R",
+    "RenalArtery_L",
+    "RenalArtery_R",
+    "RenalVein_L",
+    "RenalVein_R",
+  ],
+} as const;
+
+/** Which dial organ each mesh follows. Vessels carry the blood shape. */
+const FOLLOW: Record<string, OrganId> = {
+  Heart: "heart",
+  Liver: "liver",
+  Lung_L: "lungs",
+  Lung_R: "lungs",
+  Kidney_L: "kidneys",
+  Kidney_R: "kidneys",
+  // The gut itself is absent from the model; the vessels are the only
+  // structure that visibly "fills" as the level rises.
+  ...Object.fromEntries(GLB.vessels.map((name) => [name, "heart" as OrganId])),
+};
+
+/** Base colour per node group, raw sRGB. */
+const BASE: Record<string, number> = {
+  heart: COLORS.heart,
+  liver: COLORS.liver,
+  lung: COLORS.lung,
+  kidney: COLORS.kidney,
+  artery: COLORS.artery,
+  vein: COLORS.vein,
+  brain: COLORS.brain,
+  airway: COLORS.airway,
+};
+
+const ARTERY = new Set([
+  "Aorta",
+  "Carotid_L",
+  "Carotid_R",
+  "RenalArtery_L",
+  "RenalArtery_R",
+]);
+const VEIN = new Set([
+  "VenaCava_Inf",
+  "VenaCava_Sup",
+  "PulmonaryTrunk",
+  "PulmonaryArtery_L",
+  "PulmonaryArtery_R",
+  "RenalVein_L",
+  "RenalVein_R",
+]);
+
+function baseFor(name: string): number {
+  if (name === "Heart") return BASE.heart;
+  if (name === "Liver") return BASE.liver;
+  if (name === "Kidney_L" || name === "Kidney_R") return BASE.kidney;
+  if (name === "Lung_L" || name === "Lung_R") return BASE.lung;
+  if (ARTERY.has(name)) return BASE.artery;
+  if (VEIN.has(name)) return BASE.vein;
+  if (GLB.brain.includes(name as (typeof GLB.brain)[number]) || name === "BrainStem") {
+    return BASE.brain;
+  }
+  if (GLB.airway.includes(name as (typeof GLB.airway)[number])) return BASE.airway;
+  return 0xd7dee8;
+}
+
+/* ------------------------------------------------------------------ */
+/* Particles                                                            */
 /* ------------------------------------------------------------------ */
 
 const PARTICLE_COUNT = 600;
@@ -368,22 +331,23 @@ function mulberry32(seed: number): () => number {
 }
 
 /**
- * The loop the particles travel once released: gut -> liver -> heart -> lungs
- * -> shoulder -> lungs -> stomach -> kidney -> gut. Closed, in the figure's
- * own local units (the same space the organ positions use).
+ * The loop the particles travel once released, in the model's own metres:
+ * abdominal source -> liver -> heart -> lungs -> over the shoulders -> back
+ * down the torso -> kidneys -> source. The model has no digestive tract, so
+ * the loop starts at the abdominal point the gut would occupy.
  */
 function buildCirculation(): Float32Array {
   const loop = new THREE.CatmullRomCurve3(
     [
-      new THREE.Vector3(0.0, 0.115, 0.012),
-      new THREE.Vector3(-0.05, 0.19, 0.02),
-      new THREE.Vector3(-0.018, 0.33, 0.035),
-      new THREE.Vector3(-0.075, 0.42, 0.0),
-      new THREE.Vector3(0.0, 0.5, 0.0),
-      new THREE.Vector3(0.075, 0.42, 0.0),
-      new THREE.Vector3(0.065, 0.245, 0.02),
-      new THREE.Vector3(0.068, 0.205, -0.05),
-      new THREE.Vector3(-0.068, 0.205, -0.05),
+      new THREE.Vector3(0.0, 1.02, 0.03),
+      new THREE.Vector3(-0.05, 1.14, 0.02),
+      new THREE.Vector3(0.028, 1.285, -0.04),
+      new THREE.Vector3(-0.075, 1.31, 0.0),
+      new THREE.Vector3(0.0, 1.475, 0.0),
+      new THREE.Vector3(0.075, 1.31, 0.0),
+      new THREE.Vector3(0.0, 1.12, 0.02),
+      new THREE.Vector3(0.056, 1.075, 0.044),
+      new THREE.Vector3(-0.056, 1.065, 0.044),
     ],
     true,
     "catmullrom",
@@ -400,6 +364,25 @@ function buildCirculation(): Float32Array {
   return samples;
 }
 
+/** Soft radial contact shadow, drawn to a canvas so there is no image asset. */
+function buildShadowTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, "rgba(14,17,22,0.18)");
+    gradient.addColorStop(0.5, "rgba(14,17,22,0.09)");
+    gradient.addColorStop(1, "rgba(14,17,22,0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
 
 /* ------------------------------------------------------------------ */
 /* Scene                                                               */
@@ -426,7 +409,6 @@ export function createFigureScene(
   const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 100);
   camera.position.set(0, 0, CAMERA_Z);
 
-  // Lights are declared per the spec and feed the organ shader's uniforms.
   const hemisphere = new THREE.HemisphereLight(0xffffff, 0xd5dbe5, 0.85);
   scene.add(hemisphere);
   const directional = new THREE.DirectionalLight(0xffffff, 1.0);
@@ -436,7 +418,13 @@ export function createFigureScene(
   const pivot = new THREE.Group(); // yaw + pitch
   scene.add(pivot);
 
-  /* Body ------------------------------------------------------------- */
+  /* The loaded model ------------------------------------------------ */
+
+  const disposables: Array<{ dispose(): void }> = [];
+  /** Meshes that tint with the dial, by the dial's organ id. */
+  const tinted: Array<{ mesh: THREE.Mesh; id: OrganId; material: THREE.ShaderMaterial }> = [];
+  let geometryTriangles = 0;
+  let modelReady = false;
 
   const bodyMaterial = new THREE.ShaderMaterial({
     vertexShader: BODY_VERTEX,
@@ -446,88 +434,162 @@ export function createFigureScene(
     depthWrite: false,
     side: THREE.FrontSide,
   });
+  disposables.push(bodyMaterial);
 
-  const torsoGeometry = buildTorso();
-  const headGeometry = buildHead();
-  const neckGeometry = buildNeck();
+  const makeOrganMaterial = (name: string): THREE.ShaderMaterial => {
+    const material = new THREE.ShaderMaterial({
+      vertexShader: ORGAN_VERTEX,
+      fragmentShader: ORGAN_FRAGMENT,
+      uniforms: {
+        uBase: { value: srgb(baseFor(name)) },
+        uTint: { value: srgb(COLORS.tint) },
+        uLevel: { value: 0 },
+        uLightDir: { value: directional.position.clone().normalize() },
+        uLightIntensity: { value: directional.intensity },
+      },
+    });
+    disposables.push(material);
+    return material;
+  };
 
-  const bodyParts = [torsoGeometry, headGeometry, neckGeometry].map((geometry) => {
-    const mesh = new THREE.Mesh(geometry, bodyMaterial);
-    mesh.renderOrder = 3; // after the organs it veils
-    pivot.add(mesh);
-    return mesh;
-  });
+  const makeBrainMaterial = (): THREE.ShaderMaterial => {
+    const material = new THREE.ShaderMaterial({
+      vertexShader: BRAIN_VERTEX,
+      fragmentShader: BRAIN_FRAGMENT,
+      uniforms: {
+        uBase: { value: srgb(COLORS.brain) },
+        uTint: { value: srgb(COLORS.tint) },
+        uLightDir: { value: directional.position.clone().normalize() },
+        uLightIntensity: { value: directional.intensity },
+      },
+    });
+    disposables.push(material);
+    return material;
+  };
 
-  /* Organs ----------------------------------------------------------- */
+  const brainMaterial = makeBrainMaterial();
 
-  const organGeometry = new THREE.SphereGeometry(1, ORGAN_SEGMENTS[0], ORGAN_SEGMENTS[1]);
-  const levels = new Float32Array(ORGANS.length);
-  const levelAttribute = new THREE.InstancedBufferAttribute(levels, 1);
-  levelAttribute.setUsage(THREE.DynamicDrawUsage);
-  organGeometry.setAttribute("aLevel", levelAttribute);
+  /** Names follow the .blend; find every node as a Mesh. */
+  const meshByName = new Map<string, THREE.Mesh>();
+  const collectMeshes = (node: THREE.Object3D) => {
+    if ((node as THREE.Mesh).isMesh) {
+      const mesh = node as THREE.Mesh;
+      const name = mesh.name || "";
+      if (!meshByName.has(name)) meshByName.set(name, mesh);
+    }
+    for (const child of node.children) collectMeshes(child);
+  };
 
-  const organMaterial = new THREE.ShaderMaterial({
-    vertexShader: ORGAN_VERTEX,
-    fragmentShader: ORGAN_FRAGMENT,
-    uniforms: {
-      uBase: { value: srgb(COLORS.base) },
-      uTint: { value: srgb(COLORS.tint) },
-      uLightDir: { value: directional.position.clone().normalize() },
-      uLightIntensity: { value: directional.intensity },
-    },
-  });
+  const finishModel = (group: THREE.Group) => {
+    collectMeshes(group);
 
-  const organs = new THREE.InstancedMesh(organGeometry, organMaterial, ORGANS.length);
-  organs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  organs.renderOrder = 2;
+    // Bodies become Fresnel shells; organs get the lit-tint shader; the brain
+    // gets the rim shader; airway and vessels keep a flat lit look.
+    const bodyMesh = meshByName.get(GLB.body);
+    if (bodyMesh) {
+      bodyMesh.material = bodyMaterial;
+      bodyMesh.renderOrder = 3;
+      bodyMesh.castShadow = false;
+      bodyMesh.receiveShadow = false;
+    }
 
-  const outlineMaterial = new THREE.ShaderMaterial({
-    vertexShader: OUTLINE_VERTEX,
-    fragmentShader: OUTLINE_FRAGMENT,
-    uniforms: { uEdge: { value: srgb(COLORS.edge) } },
-    side: THREE.BackSide,
-  });
-  const outline = new THREE.InstancedMesh(organGeometry, outlineMaterial, ORGANS.length);
-  outline.renderOrder = 1;
+    for (const [name, id] of Object.entries(FOLLOW) as Array<[string, OrganId]>) {
+      const mesh = meshByName.get(name);
+      if (!mesh) {
+        console.warn(`figure: node "${name}" missing from the GLB — no tint for it`);
+        continue;
+      }
+      const material = makeOrganMaterial(name);
+      mesh.material = material;
+      mesh.renderOrder = 2;
+      tinted.push({ mesh, id, material });
+    }
 
-  const matrix = new THREE.Matrix4();
-  const quaternion = new THREE.Quaternion();
-  const position = new THREE.Vector3();
-  const scale = new THREE.Vector3();
-  ORGANS.forEach((organ, index) => {
-    position.set(...organ.position);
-    scale.set(...organ.scale);
-    matrix.compose(position, quaternion, scale);
-    organs.setMatrixAt(index, matrix);
-    outline.setMatrixAt(index, matrix);
-  });
-  organs.instanceMatrix.needsUpdate = true;
-  outline.instanceMatrix.needsUpdate = true;
+    for (const name of GLB.brain) {
+      const mesh = meshByName.get(name);
+      if (mesh) {
+        mesh.material = brainMaterial;
+        mesh.renderOrder = 2;
+      }
+    }
 
-  pivot.add(outline, organs);
+    for (const name of GLB.airway) {
+      const mesh = meshByName.get(name);
+      if (mesh) {
+        // The airway is not drug-bearing here: lit shell, always level 0.
+        const material = makeOrganMaterial(name);
+        material.uniforms.uLevel.value = 0;
+        mesh.material = material;
+        mesh.renderOrder = 2;
+      }
+    }
+
+    // Normalise: centre the model and scale it to FIGURE_HEIGHT.
+    const bounds = new THREE.Box3();
+    group.traverse((node) => {
+      const mesh = node as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.geometry.computeBoundingBox();
+        if (mesh.geometry.boundingBox) {
+          const geometryBounds = mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+          bounds.union(geometryBounds);
+        }
+      }
+    });
+    const height = bounds.max.y - bounds.min.y || 1;
+    const scale = FIGURE_HEIGHT / height;
+    const centreY = (bounds.max.y + bounds.min.y) / 2;
+    pivot.scale.setScalar(scale);
+    pivot.position.y = -centreY * scale;
+
+    group.traverse((node) => {
+      const mesh = node as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.geometry.computeBoundingBox();
+        geometryTriangles += mesh.geometry.index
+          ? mesh.geometry.index.count / 3
+          : mesh.geometry.attributes.position.count / 3;
+      }
+    });
+
+    pivot.add(group);
+    modelReady = true;
+    applyLevels();
+  };
+
+  const loader = new GLTFLoader();
+  loader.load(
+    "/models/human_anatomy.glb",
+    (gltf) => finishModel(gltf.scene),
+    undefined,
+    (error) => {
+      // The figure stays out; the dial still works. The error is the loudest
+      // signal we can give without pretending a model loaded.
+      console.error("figure: failed to load human_anatomy.glb", error);
+    }
+  );
 
   /* Particles --------------------------------------------------------- */
 
   const circulation = buildCirculation();
   const random = mulberry32(0x9e3779b9);
 
+  // Abdominal source, where a gut would sit (the model has no digestive tract).
+  const SOURCE = { x: 0, y: 1.02, z: 0.03, rx: 0.085, ry: 0.055, rz: 0.05 };
   const gutAnchors = new Float32Array(PARTICLE_COUNT * 3);
   const pathU = new Float32Array(PARTICLE_COUNT);
   const pathSpeed = new Float32Array(PARTICLE_COUNT);
   const thresholds = new Float32Array(PARTICLE_COUNT);
   const positions = new Float32Array(PARTICLE_COUNT * 3);
 
-  // Gut ellipsoid, matching the gut organ's position and scale.
-  const GUT = { x: 0, y: 0.115, z: 0.012, rx: 0.085, ry: 0.055, rz: 0.05 };
   for (let i = 0; i < PARTICLE_COUNT; i += 1) {
-    // Uniform inside the ellipsoid: cube-root radius, random direction.
     const radius = Math.cbrt(random());
     const theta = random() * Math.PI * 2;
     const cosPhi = random() * 2 - 1;
     const sinPhi = Math.sqrt(1 - cosPhi * cosPhi);
-    const x = GUT.x + radius * sinPhi * Math.cos(theta) * GUT.rx;
-    const y = GUT.y + radius * cosPhi * GUT.ry;
-    const z = GUT.z + radius * sinPhi * Math.sin(theta) * GUT.rz;
+    const x = SOURCE.x + radius * sinPhi * Math.cos(theta) * SOURCE.rx;
+    const y = SOURCE.y + radius * cosPhi * SOURCE.ry;
+    const z = SOURCE.z + radius * sinPhi * Math.sin(theta) * SOURCE.rz;
     gutAnchors[i * 3] = x;
     gutAnchors[i * 3 + 1] = y;
     gutAnchors[i * 3 + 2] = z;
@@ -545,6 +607,7 @@ export function createFigureScene(
   const positionAttribute = new THREE.BufferAttribute(positions, 3);
   positionAttribute.setUsage(THREE.DynamicDrawUsage);
   particleGeometry.setAttribute("position", positionAttribute);
+  disposables.push(particleGeometry);
 
   const particleMaterial = new THREE.ShaderMaterial({
     vertexShader: PARTICLE_VERTEX,
@@ -559,24 +622,17 @@ export function createFigureScene(
     depthWrite: false,
     blending: THREE.NormalBlending,
   });
+  disposables.push(particleMaterial);
 
   const particles = new THREE.Points(particleGeometry, particleMaterial);
   particles.renderOrder = 4; // over the shell, so the drug is always visible
   particles.frustumCulled = false;
   pivot.add(particles);
 
-  // Working vectors, allocated once.
   const target = new THREE.Vector3();
   const released = new THREE.Vector3();
   const centroid: [number, number, number] = [0, 0, 0];
 
-  /**
-   * Move each particle 8% of the way toward its target for the current hour.
-   * The target is a blend of its gut anchor and its slot on the circulation
-   * loop, driven by that particle's own absorption threshold — so the cloud
-   * empties out of the gut through the absorption phase rather than all at
-   * once. `snap` is the reduced-motion path: no per-frame travel, just place.
-   */
   function updateParticles(hours: number, snap: boolean) {
     const blend = snap ? 1 : 0.08;
     const level = curve(hours);
@@ -628,62 +684,7 @@ export function createFigureScene(
     centroid[2] = +(sz / PARTICLE_COUNT).toFixed(3);
   }
 
-  /* Brain ------------------------------------------------------------ */
-
-  // The brain sits inside the glass head: gyri, sulci and the cerebellum
-  // read through the translucent skull, the way the organs read through the
-  // torso.
-  const brainGeometry = buildBrainGeometry();
-  const brainMaterial = new THREE.ShaderMaterial({
-    vertexShader: BRAIN_VERTEX,
-    fragmentShader: BRAIN_FRAGMENT,
-    uniforms: {
-      uBase: { value: srgb(COLORS.base) },
-      uTint: { value: srgb(COLORS.tint) },
-      uLightDir: { value: directional.position.clone().normalize() },
-      uLightIntensity: { value: directional.intensity },
-    },
-  });
-
-  // The brain geometry is authored around its own origin, so it goes into a
-  // group that places it in the cranium and scales it to fit the skull.
-  const brainPivot = new THREE.Group();
-  brainPivot.position.copy(HEAD_CENTRE).add(BRAIN_OFFSET);
-  pivot.add(brainPivot);
-
-  // Fit the brain inside the head: the cranium is an ellipsoid of the given
-  // half-extents, so the brain is scaled to the tightest axis with a little
-  // clearance for the skull.
-  const brainHalf = brainGeometry.halfExtents;
-  const cranium = HEAD_HALF_EXTENTS;
-  const fit = Math.min(
-    (cranium.x * 0.88) / brainHalf.x,
-    (cranium.y * 0.88) / brainHalf.y,
-    (cranium.z * 0.88) / brainHalf.z,
-  );
-  brainPivot.scale.setScalar(fit);
-
-  for (const geometry of [brainGeometry.cerebrum, brainGeometry.cerebellum, brainGeometry.brainstem]) {
-    const mesh = new THREE.Mesh(geometry, brainMaterial);
-    mesh.renderOrder = 2; // with the organs, before the glass body veils them
-    brainPivot.add(mesh);
-  }
-
-  /* Normalise: centre the figure and scale it to FIGURE_HEIGHT. -------- */
-
-  const bounds = new THREE.Box3();
-  bodyParts.forEach((part) => {
-    part.geometry.computeBoundingBox();
-    if (part.geometry.boundingBox) bounds.union(part.geometry.boundingBox);
-  });
-  const height = bounds.max.y - bounds.min.y || 1;
-  const figureScale = FIGURE_HEIGHT / height;
-  const centreY = (bounds.max.y + bounds.min.y) / 2;
-  pivot.scale.setScalar(figureScale);
-  pivot.position.y = -centreY * figureScale;
-  const footY = -FIGURE_HEIGHT / 2;
-
-  /* Contact shadow ---------------------------------------------------- */
+  /* Normalisation is applied on load; the shadow sits under the figure. --- */
 
   const shadowTexture = buildShadowTexture();
   const shadowMaterial = new THREE.MeshBasicMaterial({
@@ -692,9 +693,11 @@ export function createFigureScene(
     depthWrite: false,
     toneMapped: false,
   });
+  disposables.push(shadowTexture, shadowMaterial);
   const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), shadowMaterial);
+  disposables.push(shadow.geometry);
   shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = footY - 0.01;
+  shadow.position.y = -FIGURE_HEIGHT / 2 - 0.01;
   shadow.renderOrder = 0;
   scene.add(shadow);
 
@@ -721,19 +724,11 @@ export function createFigureScene(
   let throttled = false;
   let lastRender = 0;
 
-  const geometryTriangles =
-    (torsoGeometry.index ? torsoGeometry.index.count : torsoGeometry.attributes.position.count) / 3 +
-    (headGeometry.index ? headGeometry.index.count : headGeometry.attributes.position.count) / 3 +
-    (neckGeometry.index ? neckGeometry.index.count : neckGeometry.attributes.position.count) / 3 +
-    ((organGeometry.index ? organGeometry.index.count : organGeometry.attributes.position.count) / 3) *
-      ORGANS.length +
-    countBrainTriangles(brainGeometry);
-
   let stats: FigureStats = {
     triangles: 0,
     drawCalls: 0,
     points: 0,
-    geometryTriangles,
+    geometryTriangles: 0,
     yaw: 0,
     pitch: 0,
     orbit: 0,
@@ -744,6 +739,15 @@ export function createFigureScene(
     frameMs: 0,
     particleCentroid: [0, 0, 0],
   };
+
+  function applyLevels() {
+    if (!modelReady) return;
+    const next = levelsAt(currentTime);
+    for (const { id, material } of tinted) {
+      const value = next[id];
+      material.uniforms.uLevel.value = value === undefined ? 0 : Math.min(1, Math.max(0, value));
+    }
+  }
 
   function applyCamera() {
     camera.position.set(Math.sin(orbit) * zoom, 0, Math.cos(orbit) * zoom);
@@ -765,7 +769,6 @@ export function createFigureScene(
       (PARTICLE_SIZE * buffer.y) / (2 * Math.tan((CAMERA_FOV * Math.PI) / 360));
   }
 
-  /** Paused while the canvas is off-screen or the tab is hidden. */
   function isPaused() {
     return offscreen || hidden;
   }
@@ -781,9 +784,6 @@ export function createFigureScene(
 
     const frameMs = now - lastFrame;
     lastFrame = now;
-    // rAF cadence is the only cost signal available without GPU timers: when
-    // the browser starts missing deadlines the delta grows, so this drops the
-    // render rate to 30fps and lets the queue drain.
     frameEma = frameEma * 0.9 + Math.min(frameMs, 100) * 0.1;
 
     if (isPaused()) return;
@@ -814,7 +814,6 @@ export function createFigureScene(
     pivot.rotation.y = yaw;
     pivot.rotation.x = pitch;
 
-    // Particles travel on their own, easing 8% toward each frame's target.
     if (!reducedMotion) updateParticles(currentTime, false);
 
     renderer.render(scene, camera);
@@ -850,22 +849,15 @@ export function createFigureScene(
 
   return {
     setLevels(next) {
-      ORGANS.forEach((organ, index) => {
-        const value = next[organ.id];
-        if (value !== undefined) {
-          levels[index] = Math.min(1, Math.max(0, value));
-        }
-      });
-      levelAttribute.needsUpdate = true;
+      if (!modelReady) return;
+      for (const { id, material } of tinted) {
+        const value = next[id];
+        material.uniforms.uLevel.value = value === undefined ? 0 : Math.min(1, Math.max(0, value));
+      }
     },
     setTime(hours) {
       currentTime = Math.max(0, Math.min(DIAL_HOURS, hours));
-      const next = levelsAt(currentTime);
-      ORGANS.forEach((organ, index) => {
-        levels[index] = next[organ.id];
-      });
-      levelAttribute.needsUpdate = true;
-      // Reduced motion gets a still frame; otherwise the frame loop travels.
+      applyLevels();
       if (reducedMotion) updateParticles(currentTime, true);
     },
     setOrbit(radians) {
@@ -882,16 +874,12 @@ export function createFigureScene(
     turnBy(radians, ms) {
       autoRotate = false;
       yawVelocity = 0;
-      // Presses during an in-flight tween accumulate from its target, so a
-      // double-click turns 30°, without the figure jumping.
       const base = tween ? tween.to : yaw;
       tween = { from: yaw, to: base + radians, start: performance.now(), duration: ms };
     },
     dragBy(dx, dy) {
       autoRotate = false;
       tween = null;
-      // The pointer directly sets the yaw, and the last increment is carried
-      // as velocity so releasing mid-drag leaves a short, damped glide.
       const step = dx * 0.006;
       yaw += step;
       yawVelocity = THREE.MathUtils.clamp(step * 0.5, -0.02, 0.02);
@@ -912,20 +900,16 @@ export function createFigureScene(
       cancelAnimationFrame(raf);
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
-      bodyParts.forEach((part) => part.geometry.dispose());
-      bodyMaterial.dispose();
-      brainGeometry.all.forEach((geometry) => geometry.dispose());
-      brainMaterial.dispose();
-      organGeometry.dispose();
-      organMaterial.dispose();
-      outlineMaterial.dispose();
-      organs.dispose();
-      outline.dispose();
-      shadow.geometry.dispose();
-      shadowMaterial.dispose();
-      shadowTexture.dispose();
-      particleGeometry.dispose();
-      particleMaterial.dispose();
+      scene.traverse((node) => {
+        const mesh = node as THREE.Mesh;
+        if (mesh.isMesh) {
+          mesh.geometry.dispose();
+          const material = mesh.material as THREE.Material | THREE.Material[];
+          if (Array.isArray(material)) material.forEach((m) => m.dispose());
+          else material.dispose();
+        }
+      });
+      disposables.forEach((entry) => entry.dispose());
       renderer.dispose();
     },
   };
