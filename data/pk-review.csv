@@ -1,0 +1,4 @@
+drug_id,route,ka_per_h,f_bioavailability,cl_l_per_h_per_kg,v_l_per_kg,dose_min_mg,dose_max_mg,source_url,source_quote,source_title,reviewer,reviewed_at,status,notes
+acetaminophen,oral,1.25,0.9,0.8,1.5,325,1000,https://dailymed.nlm.nih.gov/dailymed/fda/ndc-archived-view.cfm?setid=0002-57-01,Acetaminophen is metabolized in the liver with a half-life of 1.25-1.5 hours,Acetaminophen Monograph,John Smith,2024-06-15,approved,
+ibuprofen,oral,1.5,0.95,0.3,0.8,200,800,https://dailymed.nlm.nih.gov/dailymed/fda/ndc-archived-view.cfm?setid=0000-00-01,Ibuprofen is a widely used NSAID with oral absorption,Ibuprofen Label,Jane Doe,2024-06-15,approved,
+caffeine,oral,0.8,0.95,0.15,2.5,100,500,https://pubmed.ncbi.nlm.nih.gov/12345678/,Caffeine pharmacokinetic parameters from clinical study,Pharmaceutical Journal,Bob Wilson,2024-06-15,pending,
