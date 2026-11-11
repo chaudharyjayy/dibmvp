@@ -10,9 +10,9 @@
  * over 320ms, and arrow keys on the focusable canvas.
  */
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FigureScene } from "./figure-scene";
+import type { FigureScene, FigureStatus } from "./figure-scene";
 
 const TURN_RADIANS = (15 * Math.PI) / 180;
 const TURN_MS = 320;
@@ -29,6 +29,8 @@ export default function GlassFigure({ onScene }: GlassFigureProps) {
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const [interacted, setInteracted] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+  /** The model's load state. The figure area says so rather than sitting empty. */
+  const [status, setStatus] = useState<FigureStatus>("loading");
 
   useEffect(() => {
     onSceneRef.current = onScene;
@@ -57,6 +59,7 @@ export default function GlassFigure({ onScene }: GlassFigureProps) {
       scene = createFigureScene(canvas, {
         reducedMotion,
         maxDpr: coarse ? 1.5 : 2,
+        onStatus: setStatus,
       });
       sceneRef.current = scene;
       // Text measurement hook: renderer counters for the last frame.
@@ -125,6 +128,8 @@ export default function GlassFigure({ onScene }: GlassFigureProps) {
     [noteInteraction]
   );
 
+  const ready = status === "ready";
+
   return (
     <div className="relative h-full w-full">
       <canvas
@@ -149,33 +154,66 @@ export default function GlassFigure({ onScene }: GlassFigureProps) {
         only changes the view; the time dial under the figure changes the drug level.
       </p>
 
-      <button
-        type="button"
-        aria-label="Turn the figure left"
-        onClick={() => turn(-1)}
-        className="absolute left-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-white/90 text-ink-2 transition-colors hover:border-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:left-3"
-      >
-        <ChevronLeft className="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
-      </button>
+      {/* The model's own state, said plainly. A 1.7 MB model takes a moment, and
+          a failed load must not leave a stranger floating in an empty frame. */}
+      {status !== "ready" && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-4 text-center"
+        >
+          <p className="font-mono text-[12px] uppercase tracking-[0.12em] text-ink-2">
+            {status === "loading" ? "Model // loading" : "Model // unavailable"}
+          </p>
+          {status === "error" && (
+            <>
+              <p className="max-w-[280px] text-[14px] leading-5 text-ink-2">
+                The figure could not be loaded. The dial below still works.
+              </p>
+              <button
+                type="button"
+                onClick={() => sceneRef.current?.reload()}
+                className="pointer-events-auto flex items-center gap-2 rounded-[10px] border border-line-strong px-4 py-2 text-[13px] font-medium text-ink transition-colors hover:border-brand-text hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              >
+                <RotateCcw className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+                Try again
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
-      <button
-        type="button"
-        aria-label="Turn the figure right"
-        onClick={() => turn(1)}
-        className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-white/90 text-ink-2 transition-colors hover:border-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:right-3"
-      >
-        <ChevronRight className="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
-      </button>
+      {ready && (
+        <>
+          <button
+            type="button"
+            aria-label="Turn the figure left"
+            onClick={() => turn(-1)}
+            className="absolute left-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-surface/85 text-ink-2 backdrop-blur-sm transition-colors hover:border-brand-text hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:left-3"
+          >
+            <ChevronLeft className="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
+          </button>
 
-      <p
-        data-figure-caption
-        aria-hidden={interacted}
-        className={`pointer-events-none absolute inset-x-0 bottom-3 text-center font-mono text-[12px] leading-4 tracking-[0.08em] text-ink-2 transition-opacity duration-[400ms] ${
-          interacted ? "opacity-0" : "opacity-100"
-        }`}
-      >
-        Drag or use arrows
-      </p>
+          <button
+            type="button"
+            aria-label="Turn the figure right"
+            onClick={() => turn(1)}
+            className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-surface/85 text-ink-2 backdrop-blur-sm transition-colors hover:border-brand-text hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:right-3"
+          >
+            <ChevronRight className="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
+          </button>
+
+          <p
+            data-figure-caption
+            aria-hidden={interacted}
+            className={`pointer-events-none absolute inset-x-0 bottom-3 text-center font-mono text-[12px] leading-4 tracking-[0.08em] text-ink-2 transition-opacity duration-[400ms] ${
+              interacted ? "opacity-0" : "opacity-100"
+            }`}
+          >
+            Drag or use arrows
+          </p>
+        </>
+      )}
     </div>
   );
 }

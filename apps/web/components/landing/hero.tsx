@@ -145,8 +145,7 @@ export default function Hero() {
     let dialValue = 0;
     let glow = 0;
     let unlocked = false;
-    let lastTranslate = "";
-    let lastScale = "";
+    let lastTransform = "";
     let raf = 0;
 
     /* Who owns the dial. Scroll moves it during the pin, but the moment the
@@ -200,25 +199,21 @@ export default function Hero() {
       }
 
       const slide = still ? 0 : EASE_OUT(fade);
-      if (figureRef.current) {
-        const { dx, dy } = geomRef.current;
-        const translate = `translate3d(${(dx * slide).toFixed(1)}px, ${(dy * slide).toFixed(
-          1
-        )}px, 0)`;
-        if (translate !== lastTranslate) {
-          figureRef.current.style.transform = translate;
-          lastTranslate = translate;
-        }
-      }
       if (scaleRef.current) {
+        /* Only the canvas slides and grows. The dial is a control: moving it
+           mid-scroll drags it out from under the pointer, and on desktop it
+           slid across the phase caption. The camera zoom still moves the
+           figure in. */
+        const { dx, dy } = geomRef.current;
         /* No CSS scale on mobile: growing a full-bleed canvas pushes its bottom
-           under the dial strip. The camera zoom still moves the figure in.
-           None under reduced motion, for the same reason as the slide. */
-        const scale =
-          compactRef.current || still ? "" : `scale(${(1 + 0.12 * slide).toFixed(3)})`;
-        if (scale !== lastScale) {
-          scaleRef.current.style.transform = scale;
-          lastScale = scale;
+           under the dial strip. The camera zoom still moves the figure in. */
+        const scale = compactRef.current || still ? 1 : 1 + 0.12 * slide;
+        const transform = `translate3d(${(dx * slide).toFixed(1)}px, ${(dy * slide).toFixed(
+          1
+        )}px, 0) scale(${scale.toFixed(3)})`;
+        if (transform !== lastTransform) {
+          scaleRef.current.style.transform = transform;
+          lastTransform = transform;
         }
       }
 

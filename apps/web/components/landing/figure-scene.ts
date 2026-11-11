@@ -55,10 +55,14 @@ export type FigureStats = {
   particleCentroid: [number, number, number];
 };
 
+export type FigureStatus = "loading" | "ready" | "error";
+
 export type FigureSceneOptions = {
   reducedMotion?: boolean;
   /** Device pixel ratio ceiling: 2 on desktop, 1.5 on mobile. */
   maxDpr?: number;
+  /** Reports the model's load state so the page can show it. */
+  onStatus?: (status: FigureStatus) => void;
 };
 
 export type FigureScene = {
@@ -77,13 +81,16 @@ export type FigureScene = {
   dragBy(dx: number, dy: number): void;
   stopAutoRotate(): void;
   setPaused(paused: boolean): void;
-  /**
-   * The organ holding the highest level right now, and where it sits on the
+  /** The organ holding the highest level right now, and where it sits on the
    * canvas in CSS pixels. The HUD reticle locks onto this, so the readout it
    * shows is the model's own state rather than decoration.
    */
   getPeakOrgan(): { id: OrganId; level: number } | null;
   getOrganAnchor(id: OrganId): { x: number; y: number } | null;
+  /** Whether the model is still loading, ready, or failed to load. */
+  getStatus(): FigureStatus;
+  /** Try the model again after a failure. */
+  reload(): void;
   getStats(): FigureStats;
   dispose(): void;
 };
@@ -603,16 +610,37 @@ export function createFigureScene(
   };
 
   const loader = new GLTFLoader();
-  loader.load(
-    "/models/human_anatomy.glb",
-    (gltf) => finishModel(gltf.scene),
-    undefined,
-    (error) => {
-      // The figure stays out; the dial still works. The error is the loudest
-      // signal we can give without pretending a model loaded.
-      console.error("figure: failed to load human_anatomy.glb", error);
-    }
-  );
+  let status: FigureStatus = "loading";
+  /** Hidden while the model is missing: they would be meaningless alone. */
+  let particleCloud: THREE.Points | null = null;
+  let glowPool: THREE.Mesh | null = null;
+
+  const setStatus = (next: FigureStatus) => {
+    status = next;
+    options.onStatus?.(next);
+  };
+
+  const loadModel = () => {
+    setStatus("loading");
+    loader.load(
+      "/models/human_anatomy.glb",
+      (gltf) => {
+        finishModel(gltf.scene);
+        setStatus("ready");
+      },
+      undefined,
+      (error) => {
+        // The figure stays out; the dial still works. The error is the loudest
+        // signal we can give without pretending a model loaded.
+        console.error("figure: failed to load human_anatomy.glb", error);
+        if (particleCloud) particleCloud.visible = false;
+        if (glowPool) glowPool.visible = false;
+        setStatus("error");
+      }
+    );
+  };
+
+  loadModel();
 
   /* Particles --------------------------------------------------------- */
 
@@ -673,6 +701,7 @@ export function createFigureScene(
   particles.renderOrder = 4; // over the shell, so the drug is always visible
   particles.frustumCulled = false;
   pivot.add(particles);
+  particleCloud = particles;
 
   const target = new THREE.Vector3();
   const released = new THREE.Vector3();
@@ -749,6 +778,7 @@ export function createFigureScene(
   shadow.position.y = -FIGURE_HEIGHT / 2 - 0.01;
   shadow.renderOrder = 0;
   scene.add(shadow);
+  glowPool = shadow;
 
   /* State ------------------------------------------------------------- */
 
@@ -971,6 +1001,13 @@ export function createFigureScene(
         x: (point.x * 0.5 + 0.5) * width,
         y: (-point.y * 0.5 + 0.5) * height,
       };
+    },
+    getStatus() {
+      return status;
+    },
+    reload() {
+      // Only a failed load is worth retrying; a loaded model is not re-fetched.
+      if (status === "error") loadModel();
     },
     getStats() {
       return stats;
