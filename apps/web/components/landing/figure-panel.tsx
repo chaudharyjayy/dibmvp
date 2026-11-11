@@ -15,9 +15,10 @@
  * imported scene is ready is replayed rather than lost.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import DialStrip, { type DialHandle } from "./dial-strip";
 import GlassFigure from "./glass-figure";
+import Reticle from "./reticle";
 import type { FigureScene } from "./figure-scene";
 
 type FigurePanelProps = {
@@ -42,6 +43,8 @@ export default function FigurePanel({
   const dialRef = useRef<DialHandle | null>(null);
   const onSceneRef = useRef(onScene);
   const onDialRef = useRef(onDial);
+  /** The live scene, for the reticle. */
+  const [scene, setScene] = useState<FigureScene | null>(null);
 
   useEffect(() => {
     onSceneRef.current = onScene;
@@ -51,6 +54,7 @@ export default function FigurePanel({
   const handleScene = useCallback((scene: FigureScene | null) => {
     sceneRef.current = scene;
     if (scene) scene.setTime(timeRef.current);
+    setScene(scene);
     onSceneRef.current?.(scene);
   }, []);
 
@@ -71,9 +75,14 @@ export default function FigurePanel({
       <div className="w-full md:ml-auto md:max-w-[672px]">
         <div
           data-figure-canvas
-          className="relative h-[max(420px,50svh)] w-full overflow-hidden bg-page md:h-[clamp(400px,calc(100svh-330px),700px)] md:rounded-[12px]"
+          className="hud-corners relative h-[max(420px,50svh)] w-full overflow-hidden bg-page/40 md:h-[clamp(400px,calc(100svh-330px),700px)] md:rounded-[12px]"
         >
           <GlassFigure onScene={handleScene} />
+          {/* The scanner sweep: the one piece of theatre on the page, and the
+              thing that makes the figure read as a hologram. */}
+          <div className="hud-scan" aria-hidden="true" />
+          {/* The reticle locks onto the organ holding the highest level. */}
+          <Reticle scene={scene} />
         </div>
 
         <DialStrip onTime={handleTime} onReady={handleDialReady} autoplay={autoplay} />

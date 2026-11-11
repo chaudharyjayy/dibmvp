@@ -233,7 +233,7 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
 
       <div
         data-dial-sparkline
-        className="relative h-[56px] w-full overflow-hidden rounded-t-[12px] border border-b-0 border-line bg-surface px-3 md:h-[72px]"
+        className="relative h-[56px] w-full overflow-hidden rounded-t-[12px] border border-b-0 border-line bg-surface/80 px-3 md:h-[72px]"
       >
         <div className="absolute inset-x-3 top-1.5 flex items-baseline justify-between font-mono text-[12px] leading-4 tracking-[0.08em] text-ink-2">
           <span>0 h</span>
@@ -248,11 +248,11 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
           aria-hidden="true"
           className="absolute inset-x-3 top-[20px] h-[32px] w-[calc(100%-1.5rem)] md:top-[22px] md:h-[46px]"
         >
-          <path d={SPARK_FILL} fill="var(--accent)" opacity="0.08" />
+          <path d={SPARK_FILL} fill="var(--accent-fill)" opacity="0.14" />
           <path
             d={SPARK_PATH}
             fill="none"
-            stroke="var(--accent)"
+            stroke="var(--accent-fill)"
             strokeWidth="2"
             strokeLinecap="round"
             vectorEffect="non-scaling-stroke"
@@ -267,7 +267,7 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
             strokeWidth="1"
             vectorEffect="non-scaling-stroke"
           />
-          <circle ref={dotRef} cx="0" cy="0" r="3" fill="var(--accent)" />
+          <circle ref={dotRef} cx="0" cy="0" r="3" fill="var(--accent-fill)" />
         </svg>
       </div>
 
@@ -287,18 +287,18 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
         /* pan-y, not none: a vertical swipe that starts on the strip must still
            scroll the page. The browser cancels the pointer stream when it takes
            over a vertical pan, so horizontal drags are unaffected. */
-        className="relative h-11 w-full cursor-ew-resize touch-pan-y select-none rounded-b-[12px] border border-line bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-14"
+        className="relative h-11 w-full cursor-ew-resize touch-pan-y select-none rounded-b-[12px] border border-line bg-surface/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-14"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onKeyDown={onKeyDown}
       >
-        <div className="pointer-events-none absolute inset-x-4 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-line">
+        <div className="pointer-events-none absolute inset-x-4 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-line-strong">
           <div
             ref={fillRef}
             data-dial-fill
-            className="h-full rounded-full bg-accent"
+            className="h-full rounded-full bg-brand"
             style={{ width: "0%" }}
           />
         </div>
@@ -306,7 +306,7 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
           ref={handleRef}
           data-dial-handle
           aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent bg-white"
+          className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-brand bg-ink shadow-[0_0_12px_rgba(34,211,238,0.65)]"
           style={{ left: `${GUTTER}px` }}
         />
       </div>

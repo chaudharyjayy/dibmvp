@@ -285,10 +285,10 @@ export default function Hero() {
         <div
           ref={textRef}
           data-hero-text
-          className="relative px-5 pb-12 pt-[88px] will-change-transform md:absolute md:left-12 md:top-24 md:w-[592px] md:px-0 md:pb-0 md:pt-0"
+          className="relative px-5 pb-12 pt-[88px] will-change-transform md:absolute md:left-12 md:top-24 md:z-10 md:w-[592px] md:px-0 md:pb-0 md:pt-0"
         >
           <p
-            className={`landing-load text-ink-2 ${type.caption}`}
+            className={`landing-load text-brand-text ${type.caption}`}
             style={riseStyle(LOAD.caption.delay, LOAD.caption.duration, LOAD.caption.y)}
           >
             Educational simulator
@@ -322,14 +322,14 @@ export default function Hero() {
           >
             <Link
               href="/simulator"
-              className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-ink px-6 text-[15px] font-medium text-white transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
+              className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-brand px-6 text-[15px] font-semibold text-[#04121a] transition-colors hover:bg-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
             >
               Try the simulator
             </Link>
 
             <Link
               href="/how-it-works"
-              className="inline-flex min-h-6 items-center rounded-[10px] text-[15px] font-medium text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+              className="inline-flex min-h-6 items-center rounded-[10px] text-[15px] font-medium text-ink-2 transition-colors hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
             >
               How does this work <span aria-hidden="true">→</span>
             </Link>
@@ -370,7 +370,7 @@ export default function Hero() {
                           active ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
                         }`}
                       >
-                        <p className={`text-ink-2 ${type.caption}`}>{item.number}</p>
+                        <p className={`text-brand-text ${type.caption}`}>{item.number}</p>
                         <h2 className={`mt-3 text-ink ${type.h2}`}>{item.title}</h2>
                         <p className={`mt-3 max-w-[420px] text-ink-2 ${type.body}`}>{item.body}</p>
                       </div>
@@ -396,19 +396,19 @@ export default function Hero() {
                   atEnd ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
                 }`}
               >
-                <p className={`text-ink-2 ${type.caption}`}>Ready when you are</p>
+                <p className={`text-brand-text ${type.caption}`}>Ready when you are</p>
                 <div className="mt-4 flex flex-col items-start gap-5 md:flex-row md:items-center md:gap-8">
                   <Link
                     href="/simulator"
                     tabIndex={atEnd ? 0 : -1}
-                    className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-ink px-6 text-[15px] font-medium text-white transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
+                    className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-brand px-6 text-[15px] font-semibold text-[#04121a] transition-colors hover:bg-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
                   >
                     Try the simulator
                   </Link>
                   <Link
                     href="/how-it-works"
                     tabIndex={atEnd ? 0 : -1}
-                    className="inline-flex min-h-6 items-center rounded-[10px] text-[15px] font-medium text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+                    className="inline-flex min-h-6 items-center rounded-[10px] text-[15px] font-medium text-ink-2 transition-colors hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
                   >
                     How does this work <span aria-hidden="true">→</span>
                   </Link>

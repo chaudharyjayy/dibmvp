@@ -89,6 +89,13 @@ machine has no network access to openFDA.
 
 ## State at handoff
 
+The landing page is direction C, "HUD" — a dark instrument panel with a
+cyberpunk / medical-scanner look. Its palette, the three devices it uses and
+the rules it is held to are in `docs/DESIGN.md`. The backdrop (gradient, two
+glows, hairline grid, scanlines, vignette) is generated in CSS: the page still
+ships no images and no video. The simulator and the other routes keep the
+light theme; the fixed disclaimer is dark on every route.
+
 Landing rebuild, steps 1–6, is complete on `main`, and the procedural brain
 sits inside the glass head (PR #1). After that, the in-code figure was replaced
 by the Blender anatomy model (`32f90e5` for the export pipeline, then the

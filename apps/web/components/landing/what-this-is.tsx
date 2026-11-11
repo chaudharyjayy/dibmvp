@@ -22,7 +22,7 @@ const COLUMNS = [
 
 export default function WhatThisIs() {
   return (
-    <section className="w-full border-t border-line bg-page">
+    <section className="relative w-full border-t border-line bg-page/70">
       <div className="mx-auto flex min-h-[80svh] w-full max-w-[1440px] flex-col justify-center px-5 py-20 md:px-12">
         <h2 className={`text-ink ${type.h2}`}>What this is and isn’t</h2>
 

@@ -15,9 +15,12 @@
      Named to avoid clobbering shadcn's --color-accent / --color-primary. */
   --color-page: var(--bg);
   --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
   --color-brand: var(--accent-fill);
   --color-brand-text: var(--accent-text);
   --color-warn: var(--warn);
@@ -66,18 +69,33 @@ body {
 }
 
 :root {
-  /* Landing tokens — white page, no vignette. --warn is reserved for
-     interaction warnings and must never be used as decoration. */
-  --bg: #ffffff;
-  --surface: #f5f6f8;
-  --line: #e3e6eb;
-  --ink: #0e1116;
-  --ink-2: #4a5260;
-  --accent-fill: #2563eb;
-  --accent-text: #1d4ed8;
-  --warn: #b45309;
-  --figure-base: #d7dee8;
-  --figure-edge: #b8c2d1;
+  /* Landing tokens — dark sci-fi HUD. The page reads as a dark instrument
+     panel: a deep blue-black base, raised surfaces, a cyan accent for the
+     one interactive thing on screen (the dial), and amber reserved for
+     interaction warnings. --warn must never be used as decoration.
+     Every text pair below was checked against WCAG AA:
+       ink/bg 17.4:1, ink-2/bg 9.9:1, ink-3/bg 6.1:1,
+       accent-text/bg 13.9:1, warn/bg 9.4:1, button-ink/accent 10.5:1.
+     --line is a decorative hairline; --line-strong is for boundaries that
+     carry meaning (the dial track), and clears 3:1 on both backgrounds. */
+  --bg: #05070c;
+  --surface: #0c1119;
+  --surface-2: #111825;
+  --line: #1d2937;
+  --line-strong: #4a637d;
+  --ink: #e9eff8;
+  --ink-2: #a7b8cc;
+  --ink-3: #7d8fa5;
+  --accent-fill: #22d3ee;
+  --accent-text: #67e8f9;
+  --warn: #f59e0b;
+  --figure-base: #b8cce4;
+  --figure-edge: #7fa6d9;
+
+  /* Background layers for the HUD backdrop. */
+  --hud-glow-a: rgba(34, 211, 238, 0.11);
+  --hud-glow-b: rgba(37, 99, 235, 0.14);
+  --hud-grid-line: rgba(125, 196, 222, 0.06);
 
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -147,6 +165,129 @@ body {
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* ------------------------------------------------------------------ */
+/* HUD backdrop                                                        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The page sits on a dark instrument panel. Everything here is generated in
+ * code — no images, no video — so the page still ships with nothing but the
+ * model and the font.
+ *
+ *   .hud-backdrop   the base gradient and the two colour glows
+ *   .hud-grid       a fine engineering grid, masked so it fades out
+ *   .hud-scanlines  a very low-contrast scanline texture
+ *   .hud-vignette   darkens the edges so the eye lands on the figure
+ */
+.hud-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1100px 760px at 76% 8%, var(--hud-glow-a), transparent 62%),
+    radial-gradient(900px 700px at 10% 82%, var(--hud-glow-b), transparent 64%),
+    linear-gradient(180deg, #05070c 0%, #070b13 42%, #05070c 100%);
+}
+
+.hud-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--hud-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--hud-grid-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(120% 92% at 50% 4%, #000 32%, transparent 88%);
+  mask-image: radial-gradient(120% 92% at 50% 4%, #000 32%, transparent 88%);
+}
+
+.hud-scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(190, 235, 255, 0.022) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+.hud-vignette {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 240px rgba(0, 0, 0, 0.72);
+}
+
+/* Corner brackets: the HUD frame around the figure. */
+.hud-corners::before,
+.hud-corners::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-color: var(--accent-fill);
+  border-style: solid;
+  opacity: 0.75;
+}
+.hud-corners::before {
+  top: 10px;
+  left: 10px;
+  border-width: 1px 0 0 1px;
+}
+.hud-corners::after {
+  right: 10px;
+  bottom: 10px;
+  border-width: 0 1px 1px 0;
+}
+
+/*
+ * The signature detail: a scan line travelling down the figure, the way a
+ * medical scanner would sweep. It is the one piece of pure theatre on the
+ * page, and it is what makes the figure read as a hologram rather than a
+ * model. Reduced motion parks it at the top and stops it.
+ */
+.hud-scan {
+  position: absolute;
+  inset-x: 0;
+  top: 0;
+  height: 22%;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(34, 211, 238, 0.06) 55%,
+    rgba(103, 232, 249, 0.5) 92%,
+    rgba(103, 232, 249, 0.9) 100%
+  );
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: hud-scan 7s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+@keyframes hud-scan {
+  0% {
+    transform: translateY(-30%);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(460%);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-scan {
+    animation: none;
+    transform: translateY(120%);
+    opacity: 0.35;
+  }
+}
+
 /* Landing load sequence. Unlayered so it wins over the utilities layer without
    !important. Delay, duration and lift distance come from components/landing/load.ts. */
 @keyframes landing-rise {
@@ -178,7 +319,6 @@ body {
     transition: none;
   }
 }
-
 @layer base {
   * {
     @apply border-border outline-ring/50;

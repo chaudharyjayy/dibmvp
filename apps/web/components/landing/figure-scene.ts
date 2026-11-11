@@ -77,6 +77,13 @@ export type FigureScene = {
   dragBy(dx: number, dy: number): void;
   stopAutoRotate(): void;
   setPaused(paused: boolean): void;
+  /**
+   * The organ holding the highest level right now, and where it sits on the
+   * canvas in CSS pixels. The HUD reticle locks onto this, so the readout it
+   * shows is the model's own state rather than decoration.
+   */
+  getPeakOrgan(): { id: OrganId; level: number } | null;
+  getOrganAnchor(id: OrganId): { x: number; y: number } | null;
   getStats(): FigureStats;
   dispose(): void;
 };
@@ -89,8 +96,8 @@ const CAMERA_FOV = 32;
 const CAMERA_Z = 6.4;
 
 const COLORS = {
-  body: 0xaeb9ca,
-  tint: 0x2563eb,
+  body: 0xb6e4fb,
+  tint: 0x22d3ee,
   // Base colours as they came out of the .blend, as raw sRGB components.
   brain: 0x9e4d4d, // (0.62, 0.30, 0.30)
   airway: 0xdbe0eb, // (0.86, 0.88, 0.92)
@@ -120,22 +127,32 @@ const ease = EASE_OUT;
 const BODY_VERTEX = /* glsl */ `
   varying vec3 vWorldNormal;
   varying vec3 vViewDir;
+  varying float vWorldY;
   void main() {
     vec4 world = modelMatrix * vec4(position, 1.0);
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     vViewDir = normalize(cameraPosition - world.xyz);
+    vWorldY = world.y;
     gl_Position = projectionMatrix * viewMatrix * world;
   }
 `;
 
 const BODY_FRAGMENT = /* glsl */ `
   uniform vec3 uColor;
+  uniform float uScan;
   varying vec3 vWorldNormal;
   varying vec3 vViewDir;
+  varying float vWorldY;
   void main() {
     float fresnel = 1.0 - abs(dot(normalize(vWorldNormal), normalize(vViewDir)));
-    float alpha = mix(0.05, 0.5, pow(fresnel, 2.2));
-    gl_FragColor = vec4(uColor, alpha);
+    // A dark panel needs a rim, not a wash: the light sits on the silhouette
+    // edge, so the body reads as a glowing outline with the organs visible
+    // through it.
+    float alpha = 0.07 + pow(fresnel, 1.9) * 0.95;
+    // The scan band is what makes it read as a hologram rather than a ghost:
+    // one horizontal band of light travelling down the body.
+    float band = exp(-pow((vWorldY - uScan) * 6.5, 2.0));
+    gl_FragColor = vec4(uColor * (1.0 + band * 1.6), alpha + band * 0.12);
   }
 `;
 
@@ -161,8 +178,11 @@ const ORGAN_FRAGMENT = /* glsl */ `
     float level = clamp(uLevel, 0.0, 1.0);
     vec3 base = mix(uBase, uTint, pow(level, 0.8));
     float lambert = clamp(dot(n, normalize(uLightDir)), 0.0, 1.0);
-    vec3 lit = base * (0.62 + 0.38 * lambert * uLightIntensity);
-    vec3 emissive = uTint * (0.35 * level);
+    // Lifted and self-lit: the model's own tissue colours are dark reds and
+    // would disappear against a dark panel, so the tissue carries its own
+    // glow and the level adds the accent on top.
+    vec3 lit = base * (0.55 + 0.45 * lambert * uLightIntensity) * 1.45;
+    vec3 emissive = uTint * (0.16 + 0.45 * level);
     gl_FragColor = vec4(lit + emissive, 1.0);
   }
 `;
@@ -192,9 +212,9 @@ const BRAIN_FRAGMENT = /* glsl */ `
     vec3 n = normalize(vNormalW);
     float lambert = clamp(dot(n, normalize(uLightDir)), 0.0, 1.0);
     float fill = clamp(dot(n, -normalize(uLightDir)), 0.0, 1.0);
-    vec3 lit = uBase * (0.62 + 0.34 * lambert * uLightIntensity + 0.12 * fill);
+    vec3 lit = uBase * (0.62 + 0.34 * lambert * uLightIntensity + 0.12 * fill) * 1.35;
     float rim = pow(1.0 - abs(dot(n, normalize(vViewDir))), 2.4);
-    lit += uTint * rim * 0.3;
+    lit += uTint * rim * 0.38;
     gl_FragColor = vec4(lit, 1.0);
   }
 `;
@@ -364,7 +384,11 @@ function buildCirculation(): Float32Array {
   return samples;
 }
 
-/** Soft radial contact shadow, drawn to a canvas so there is no image asset. */
+/**
+ * A soft radial pool of light, drawn to a canvas so there is no image asset.
+ * It is white with a falling alpha; the material tints it and blends it
+ * additively, which is what turns it into a glow under the figure.
+ */
 function buildShadowTexture(): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement("canvas");
@@ -373,9 +397,9 @@ function buildShadowTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext("2d");
   if (ctx) {
     const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    gradient.addColorStop(0, "rgba(14,17,22,0.18)");
-    gradient.addColorStop(0.5, "rgba(14,17,22,0.09)");
-    gradient.addColorStop(1, "rgba(14,17,22,0)");
+    gradient.addColorStop(0, "rgba(255,255,255,0.55)");
+    gradient.addColorStop(0.45, "rgba(255,255,255,0.22)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, size, size);
   }
@@ -409,9 +433,9 @@ export function createFigureScene(
   const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 100);
   camera.position.set(0, 0, CAMERA_Z);
 
-  const hemisphere = new THREE.HemisphereLight(0xffffff, 0xd5dbe5, 0.85);
+  const hemisphere = new THREE.HemisphereLight(0xbcd8ff, 0x0a1420, 0.7);
   scene.add(hemisphere);
-  const directional = new THREE.DirectionalLight(0xffffff, 1.0);
+  const directional = new THREE.DirectionalLight(0xd8ecff, 1.1);
   directional.position.set(3, 5, 4);
   scene.add(directional);
 
@@ -423,15 +447,25 @@ export function createFigureScene(
   const disposables: Array<{ dispose(): void }> = [];
   /** Meshes that tint with the dial, by the dial's organ id. */
   const tinted: Array<{ mesh: THREE.Mesh; id: OrganId; material: THREE.ShaderMaterial }> = [];
+  /** World-space centre of each organ mesh, for the HUD reticle. */
+  const anchors = new Map<OrganId, THREE.Vector3>();
   let geometryTriangles = 0;
   let modelReady = false;
 
   const bodyMaterial = new THREE.ShaderMaterial({
     vertexShader: BODY_VERTEX,
     fragmentShader: BODY_FRAGMENT,
-    uniforms: { uColor: { value: srgb(COLORS.body) } },
+    uniforms: {
+      uColor: { value: srgb(COLORS.body) },
+      // The height of the scan band in world units; the frame loop sweeps it.
+      uScan: { value: 0.8 },
+    },
     transparent: true,
     depthWrite: false,
+    // Additive: on a dark panel the shell has to *add* light. With ordinary
+    // blending a translucent shell just dims what is behind it, which reads
+    // as a dark mannequin rather than a hologram.
+    blending: THREE.AdditiveBlending,
     side: THREE.FrontSide,
   });
   disposables.push(bodyMaterial);
@@ -554,6 +588,17 @@ export function createFigureScene(
 
     pivot.add(group);
     modelReady = true;
+
+    // Where each organ sits, in world space, so the reticle can point at it.
+    // The centre of the mesh's own bounding box is close enough for a marker.
+    for (const { mesh, id } of tinted) {
+      mesh.geometry.computeBoundingBox();
+      const box = mesh.geometry.boundingBox;
+      if (!box) continue;
+      const centre = box.getCenter(new THREE.Vector3()).applyMatrix4(mesh.matrixWorld);
+      if (!anchors.has(id)) anchors.set(id, centre);
+    }
+
     applyLevels();
   };
 
@@ -686,12 +731,16 @@ export function createFigureScene(
 
   /* Normalisation is applied on load; the shadow sits under the figure. --- */
 
+  // A shadow cannot be seen on a dark panel. The figure instead stands over a
+  // soft cyan pool of light, which reads as a hologram on a scanner bed.
   const shadowTexture = buildShadowTexture();
   const shadowMaterial = new THREE.MeshBasicMaterial({
     map: shadowTexture,
     transparent: true,
     depthWrite: false,
     toneMapped: false,
+    blending: THREE.AdditiveBlending,
+    color: new THREE.Color().setRGB(0.09, 0.55, 0.72),
   });
   disposables.push(shadowTexture, shadowMaterial);
   const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), shadowMaterial);
@@ -814,6 +863,13 @@ export function createFigureScene(
     pivot.rotation.y = yaw;
     pivot.rotation.x = pitch;
 
+    // The hologram band travels down the body. Under reduced motion it parks
+    // instead of sweeping: a moving band is decoration, not information.
+    if (!reducedMotion) {
+      const phase = (now % 5200) / 5200;
+      bodyMaterial.uniforms.uScan.value = 1.65 - phase * 3.3;
+    }
+
     if (!reducedMotion) updateParticles(currentTime, false);
 
     renderer.render(scene, camera);
@@ -891,6 +947,30 @@ export function createFigureScene(
     setPaused(next) {
       offscreen = next;
       if (!next) lastFrame = performance.now();
+    },
+    getPeakOrgan() {
+      if (!modelReady) return null;
+      const levels = levelsAt(currentTime);
+      let peak: { id: OrganId; level: number } | null = null;
+      for (const id of ["liver", "heart", "lungs", "kidneys"] as OrganId[]) {
+        const level = levels[id];
+        if (level === undefined || level <= 0) continue;
+        if (!peak || level > peak.level) peak = { id, level };
+      }
+      return peak;
+    },
+    getOrganAnchor(id) {
+      const world = anchors.get(id);
+      if (!world) return null;
+      // The organ sits inside the pivot, which carries the yaw and pitch, and
+      // the pivot carries the scale that normalises the figure's height.
+      const point = world.clone().applyMatrix4(pivot.matrixWorld).project(camera);
+      const width = canvas.clientWidth || 1;
+      const height = canvas.clientHeight || 1;
+      return {
+        x: (point.x * 0.5 + 0.5) * width,
+        y: (-point.y * 0.5 + 0.5) * height,
+      };
     },
     getStats() {
       return stats;
