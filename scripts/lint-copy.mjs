@@ -101,6 +101,7 @@ function selftest() {
   const phrase = loadPhrases()[0];
   const targets = [
     'apps/web/components/probe.tsx',
+    'apps/web/components/landing/probe.tsx',
     'packages/engine/probe.ts',
     'docs/probe.md',
     'data/probe.json',
@@ -119,7 +120,9 @@ function selftest() {
     console.error(`lint-copy selftest: FAILED — not scanned: ${missed.join(', ')}`);
     return 1;
   }
-  console.log(`lint-copy selftest: OK — probe files in ${targets.length} roots were all caught`);
+  console.log(
+    `lint-copy selftest: OK — probe files in ${targets.length} roots were all caught: ${targets.join(', ')}`
+  );
   return 0;
 }
 

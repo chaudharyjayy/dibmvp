@@ -1,66 +1,64 @@
-/** Hero — nav overlay only, no body content.
- *  Nav: exactly "Home", "How does this work", "About us".
+/**
+ * Hero copy + figure column. Left column runs x48–640 at 1440 (592px), right
+ * column x720–1392 (672px), with the 80px gutter between them.
+ *
+ * The horizontal padding lives on the text column, not the section, so the
+ * figure column can bleed full-width on mobile (spec: 390px-wide canvas) while
+ * the copy keeps its 20px gutter.
+ *
+ * No motion here yet: the load sequence (caption 80ms, H1 lines staggered,
+ * figure fade, dial rise) and the scroll pin land in later steps. The
+ * data-h1-line hooks exist so those steps do not rechoreograph the markup.
  */
+
 import Link from "next/link";
+import FigurePanel from "./figure-panel";
+import { type } from "./type";
+
+const H1_LINES = ["See how a drug", "moves through a body,", "hour by hour."];
 
 export default function Hero() {
-  const NAV_LINKS = [
-    { label: "Home", href: "/" },
-    { label: "How does this work", href: "/how-it-works" },
-    { label: "About us", href: "/about" },
-  ];
-
   return (
-    <header className="pointer-events-none fixed inset-x-0 top-0 z-40 flex items-center justify-between px-5 pt-6 sm:px-8 sm:pt-8 md:px-12 lg:px-16">
-      <Link
-        href="/"
-        aria-label="Home"
-        className="pointer-events-auto shrink-0 text-white/90 transition-colors hover:text-white"
-      >
-        <svg
-          viewBox="0 0 256 256"
-          role="img"
-          aria-label="Vibrant Wellness"
-          className="h-8 w-8 fill-current md:h-9 md:w-9"
-        >
-          <path d="M 128 128 C 198.692 128 256 185.308 256 256 L 151.883 256 C 149.812 220.307 120.213 192 84 192 C 47.787 192 18.188 220.307 16.117 256 L 0 256 C 0 185.308 57.308 128 128 128 Z M 104.117 0 C 106.188 35.694 135.787 64 172 64 C 208.213 64 237.812 35.694 239.883 0 L 256 0 C 256 70.692 198.692 128 128 128 C 57.308 128 0 70.692 0 0 Z" />
-        </svg>
-      </Link>
+    <section className="relative w-full bg-page">
+      <div className="mx-auto w-full max-w-[1440px] pb-20 pt-24 md:px-12 md:pb-24">
+        <div className="grid items-start gap-14 md:grid-cols-[minmax(0,1fr)_minmax(0,672px)] md:gap-20">
+          <div className="max-w-[592px] px-5 md:px-0">
+            <p className={`text-ink-2 ${type.caption}`}>Educational simulator</p>
 
-      <nav className="pointer-events-auto absolute left-1/2 flex -translate-x-1/2 items-center gap-6 rounded-full border border-white/10 bg-white/5 px-6 py-2.5 backdrop-blur-xl sm:gap-8 sm:px-8 sm:py-3">
-        {NAV_LINKS.map((link, index) => (
-          <Link
-            key={link.label}
-            href={link.href}
-            className={`whitespace-nowrap text-xs font-medium transition-colors sm:text-sm ${
-              index === 0 ? "text-white" : "text-zinc-400 hover:text-white"
-            }`}
-          >
-            {link.label}
-          </Link>
-        ))}
-      </nav>
+            <h1 className={`mt-6 text-ink ${type.display}`}>
+              {H1_LINES.map((line, index) => (
+                <span key={line} data-h1-line={index} className="block">
+                  {line}
+                  {index < H1_LINES.length - 1 ? " " : ""}
+                </span>
+              ))}
+            </h1>
 
-      <Link
-        href="/signin"
-        aria-label="Account"
-        className="pointer-events-auto hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 backdrop-blur-xl transition hover:border-white/25 hover:text-white md:flex"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          role="img"
-          aria-label="Account"
-          className="h-5 w-5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="8.5" r="3.5" />
-          <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
-        </svg>
-      </Link>
-    </header>
+            <p className={`mt-6 max-w-[480px] text-ink-2 ${type.body}`}>
+              Set a profile and a dose, then move the time dial to watch an illustrative drug
+              level rise and fall.
+            </p>
+
+            <div className="mt-8 flex flex-col items-start gap-5 md:flex-row md:items-center md:gap-8">
+              <Link
+                href="/simulator"
+                className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-ink px-6 text-[15px] font-medium text-white outline-none transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
+              >
+                Try the simulator
+              </Link>
+
+              <Link
+                href="/how-it-works"
+                className="rounded-[10px] text-[15px] font-medium text-ink-2 outline-none transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+              >
+                How does this work <span aria-hidden="true">→</span>
+              </Link>
+            </div>
+          </div>
+
+          <FigurePanel />
+        </div>
+      </div>
+    </section>
   );
 }
