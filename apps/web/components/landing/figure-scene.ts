@@ -13,10 +13,12 @@
  */
 
 import * as THREE from "three";
+import { EASE_OUT } from "./easing";
+import { curve, DIAL_HOURS, levelsAt, type OrganId, type OrganLevels } from "./dial";
 
-export type OrganId = "lungs" | "heart" | "liver" | "stomach" | "gut" | "kidneys";
+export type { OrganId };
 
-export type FigureLevels = Partial<Record<OrganId, number>>;
+export type FigureLevels = OrganLevels;
 
 export type FigureStats = {
   /** Triangles submitted in the last rendered frame (includes the outline pass). */
@@ -41,6 +43,12 @@ export type FigureStats = {
   renderMs: number;
   /** EMA of the time between animation frames, in ms. */
   frameMs: number;
+  /**
+   * Mean particle position in the figure's local units, for verification.
+   * At t=0 it sits inside the gut (y ≈ 0.115); as the dose is absorbed it
+   * climbs the circulation loop.
+   */
+  particleCentroid: [number, number, number];
 };
 
 export type FigureSceneOptions = {
@@ -51,6 +59,11 @@ export type FigureSceneOptions = {
 
 export type FigureScene = {
   setLevels(levels: FigureLevels): void;
+  /**
+   * Move the dial to `hours` on the 0–12 h axis: tints the organs and releases
+   * the particles, both from the shared illustrative curve in `dial.ts`.
+   */
+  setTime(hours: number): void;
   /** Camera orbit about the subject, in radians. 0 = straight on. */
   setOrbit(radians: number): void;
   /** Camera distance from the subject. Spec hero value is 6.4. */
@@ -99,27 +112,7 @@ function srgb(hex: number): THREE.Color {
 }
 
 /** cubic-bezier(0.22, 1, 0.36, 1) — the single easing used across the page. */
-const ease = (() => {
-  const [x1, y1, x2, y2] = [0.22, 1, 0.36, 1];
-  const cx = 3 * x1;
-  const bx = 3 * (x2 - x1) - cx;
-  const ax = 1 - cx - bx;
-  const cy = 3 * y1;
-  const by = 3 * (y2 - y1) - cy;
-  const ay = 1 - cy - by;
-  const at = (a: number, b: number, c: number, t: number) => ((a * t + b) * t + c) * t;
-  const slope = (a: number, b: number, c: number, t: number) => (3 * a * t + 2 * b) * t + c;
-  return (x: number) => {
-    let t = Math.min(1, Math.max(0, x));
-    for (let i = 0; i < 6; i += 1) {
-      const err = at(ax, bx, cx, t) - x;
-      const d = slope(ax, bx, cx, t);
-      if (Math.abs(err) < 1e-5 || Math.abs(d) < 1e-6) break;
-      t -= err / d;
-    }
-    return at(ay, by, cy, t);
-  };
-})();
+const ease = EASE_OUT;
 
 /* ------------------------------------------------------------------ */
 /* Geometry                                                            */
@@ -268,6 +261,86 @@ const OUTLINE_FRAGMENT = /* glsl */ `
 `;
 
 /* ------------------------------------------------------------------ */
+/* Particles                                                           */
+/* ------------------------------------------------------------------ */
+
+const PARTICLE_COUNT = 600;
+/** World-space diameter of one point sprite (spec: 0.02). */
+const PARTICLE_SIZE = 0.02;
+/** Samples precomputed around the circulation loop, so a frame costs lookups. */
+const PATH_SAMPLES = 256;
+
+const PARTICLE_VERTEX = /* glsl */ `
+  uniform float uPointScale;
+  uniform float uOpacity;
+  varying float vAlpha;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = uPointScale / max(0.001, -mv.z);
+    vAlpha = uOpacity;
+  }
+`;
+
+const PARTICLE_FRAGMENT = /* glsl */ `
+  uniform vec3 uColor;
+  varying float vAlpha;
+  void main() {
+    // Soft circle: fully opaque core, feathered rim, nothing outside.
+    float r = length(gl_PointCoord - vec2(0.5)) * 2.0;
+    float alpha = smoothstep(1.0, 0.35, r) * vAlpha;
+    if (alpha <= 0.002) discard;
+    gl_FragColor = vec4(uColor, alpha);
+  }
+`;
+
+/** Deterministic RNG, so every load shows the same particle scatter. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * The loop the particles travel once released: gut -> liver -> heart -> lungs
+ * -> shoulder -> lungs -> stomach -> kidney -> gut. Closed, in the figure's
+ * own local units (the same space the organ positions use).
+ */
+function buildCirculation(): Float32Array {
+  const loop = new THREE.CatmullRomCurve3(
+    [
+      new THREE.Vector3(0.0, 0.115, 0.012),
+      new THREE.Vector3(-0.05, 0.19, 0.02),
+      new THREE.Vector3(-0.018, 0.33, 0.035),
+      new THREE.Vector3(-0.075, 0.42, 0.0),
+      new THREE.Vector3(0.0, 0.5, 0.0),
+      new THREE.Vector3(0.075, 0.42, 0.0),
+      new THREE.Vector3(0.065, 0.245, 0.02),
+      new THREE.Vector3(0.068, 0.205, -0.05),
+      new THREE.Vector3(-0.068, 0.205, -0.05),
+    ],
+    true,
+    "catmullrom",
+    0.5
+  );
+  const samples = new Float32Array(PATH_SAMPLES * 3);
+  const point = new THREE.Vector3();
+  for (let i = 0; i < PATH_SAMPLES; i += 1) {
+    loop.getPoint(i / PATH_SAMPLES, point);
+    samples[i * 3] = point.x;
+    samples[i * 3 + 1] = point.y;
+    samples[i * 3 + 2] = point.z;
+  }
+  return samples;
+}
+
+
+/* ------------------------------------------------------------------ */
 /* Scene                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -372,6 +445,128 @@ export function createFigureScene(
 
   pivot.add(outline, organs);
 
+  /* Particles --------------------------------------------------------- */
+
+  const circulation = buildCirculation();
+  const random = mulberry32(0x9e3779b9);
+
+  const gutAnchors = new Float32Array(PARTICLE_COUNT * 3);
+  const pathU = new Float32Array(PARTICLE_COUNT);
+  const pathSpeed = new Float32Array(PARTICLE_COUNT);
+  const thresholds = new Float32Array(PARTICLE_COUNT);
+  const positions = new Float32Array(PARTICLE_COUNT * 3);
+
+  // Gut ellipsoid, matching the gut organ's position and scale.
+  const GUT = { x: 0, y: 0.115, z: 0.012, rx: 0.085, ry: 0.055, rz: 0.05 };
+  for (let i = 0; i < PARTICLE_COUNT; i += 1) {
+    // Uniform inside the ellipsoid: cube-root radius, random direction.
+    const radius = Math.cbrt(random());
+    const theta = random() * Math.PI * 2;
+    const cosPhi = random() * 2 - 1;
+    const sinPhi = Math.sqrt(1 - cosPhi * cosPhi);
+    const x = GUT.x + radius * sinPhi * Math.cos(theta) * GUT.rx;
+    const y = GUT.y + radius * cosPhi * GUT.ry;
+    const z = GUT.z + radius * sinPhi * Math.sin(theta) * GUT.rz;
+    gutAnchors[i * 3] = x;
+    gutAnchors[i * 3 + 1] = y;
+    gutAnchors[i * 3 + 2] = z;
+    positions[i * 3] = x;
+    positions[i * 3 + 1] = y;
+    positions[i * 3 + 2] = z;
+
+    pathU[i] = random();
+    pathSpeed[i] = 0.02 + random() * 0.03; // loops per hour
+    // Each particle is absorbed at its own hour inside the absorption phase.
+    thresholds[i] = random() * 1.6;
+  }
+
+  const particleGeometry = new THREE.BufferGeometry();
+  const positionAttribute = new THREE.BufferAttribute(positions, 3);
+  positionAttribute.setUsage(THREE.DynamicDrawUsage);
+  particleGeometry.setAttribute("position", positionAttribute);
+
+  const particleMaterial = new THREE.ShaderMaterial({
+    vertexShader: PARTICLE_VERTEX,
+    fragmentShader: PARTICLE_FRAGMENT,
+    uniforms: {
+      uColor: { value: srgb(COLORS.tint) },
+      uOpacity: { value: 0.18 },
+      uPointScale: { value: PARTICLE_SIZE * 500 },
+    },
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+  });
+
+  const particles = new THREE.Points(particleGeometry, particleMaterial);
+  particles.renderOrder = 4; // over the shell, so the drug is always visible
+  particles.frustumCulled = false;
+  pivot.add(particles);
+
+  // Working vectors, allocated once.
+  const target = new THREE.Vector3();
+  const released = new THREE.Vector3();
+  const centroid: [number, number, number] = [0, 0, 0];
+
+  /**
+   * Move each particle 8% of the way toward its target for the current hour.
+   * The target is a blend of its gut anchor and its slot on the circulation
+   * loop, driven by that particle's own absorption threshold — so the cloud
+   * empties out of the gut through the absorption phase rather than all at
+   * once. `snap` is the reduced-motion path: no per-frame travel, just place.
+   */
+  function updateParticles(hours: number, snap: boolean) {
+    const blend = snap ? 1 : 0.08;
+    const level = curve(hours);
+    particleMaterial.uniforms.uOpacity.value = 0.18 + 0.72 * Math.min(1, level * 2.2);
+
+    for (let i = 0; i < PARTICLE_COUNT; i += 1) {
+      let release = (hours - thresholds[i]) / 0.55;
+      release = release < 0 ? 0 : release > 1 ? 1 : release;
+      release = release * release * (3 - 2 * release); // smoothstep
+
+      const u = (pathU[i] + hours * pathSpeed[i]) % 1;
+      const scaled = u * PATH_SAMPLES;
+      const i0 = Math.floor(scaled) % PATH_SAMPLES;
+      const i1 = (i0 + 1) % PATH_SAMPLES;
+      const f = scaled - Math.floor(scaled);
+      const a0 = i0 * 3;
+      const a1 = i1 * 3;
+      released.set(
+        circulation[a0] + (circulation[a1] - circulation[a0]) * f,
+        circulation[a0 + 1] + (circulation[a1 + 1] - circulation[a0 + 1]) * f,
+        circulation[a0 + 2] + (circulation[a1 + 2] - circulation[a0 + 2]) * f
+      );
+
+      const anchor = i * 3;
+      target.set(
+        gutAnchors[anchor] + (released.x - gutAnchors[anchor]) * release,
+        gutAnchors[anchor + 1] + (released.y - gutAnchors[anchor + 1]) * release,
+        gutAnchors[anchor + 2] + (released.z - gutAnchors[anchor + 2]) * release
+      );
+
+      positions[anchor] += (target.x - positions[anchor]) * blend;
+      positions[anchor + 1] += (target.y - positions[anchor + 1]) * blend;
+      positions[anchor + 2] += (target.z - positions[anchor + 2]) * blend;
+    }
+
+    positionAttribute.needsUpdate = true;
+
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
+    for (let i = 0; i < PARTICLE_COUNT; i += 1) {
+      sx += positions[i * 3];
+      sy += positions[i * 3 + 1];
+      sz += positions[i * 3 + 2];
+    }
+    centroid[0] = +(sx / PARTICLE_COUNT).toFixed(3);
+    centroid[1] = +(sy / PARTICLE_COUNT).toFixed(3);
+    centroid[2] = +(sz / PARTICLE_COUNT).toFixed(3);
+  }
+
+
   /* Normalise: centre the figure and scale it to FIGURE_HEIGHT. -------- */
 
   const bounds = new THREE.Box3();
@@ -410,6 +605,7 @@ export function createFigureScene(
   let tween: { from: number; to: number; start: number; duration: number } | null = null;
   let orbit = 0;
   let zoom = CAMERA_Z;
+  let currentTime = 0;
   let offscreen = false;
   let hidden = document.hidden;
   let disposed = false;
@@ -442,6 +638,7 @@ export function createFigureScene(
     dpr: 1,
     renderMs: 0,
     frameMs: 0,
+    particleCentroid: [0, 0, 0],
   };
 
   function applyCamera() {
@@ -456,6 +653,12 @@ export function createFigureScene(
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    // Sprite size in device pixels: a PARTICLE_SIZE-wide world disc projects to
+    // size * bufferHeight / (2 tan(fov/2)) at unit distance; the vertex shader
+    // divides by view depth.
+    const buffer = renderer.getDrawingBufferSize(new THREE.Vector2());
+    particleMaterial.uniforms.uPointScale.value =
+      (PARTICLE_SIZE * buffer.y) / (2 * Math.tan((CAMERA_FOV * Math.PI) / 360));
   }
 
   /** Paused while the canvas is off-screen or the tab is hidden. */
@@ -507,6 +710,9 @@ export function createFigureScene(
     pivot.rotation.y = yaw;
     pivot.rotation.x = pitch;
 
+    // Particles travel on their own, easing 8% toward each frame's target.
+    if (!reducedMotion) updateParticles(currentTime, false);
+
     renderer.render(scene, camera);
     const renderMs = performance.now() - now;
     renderEma = renderEma === 0 ? renderMs : renderEma * 0.9 + renderMs * 0.1;
@@ -526,11 +732,13 @@ export function createFigureScene(
       dpr: renderer.getPixelRatio(),
       renderMs: +renderEma.toFixed(2),
       frameMs: +frameEma.toFixed(2),
+      particleCentroid: [centroid[0], centroid[1], centroid[2]],
     };
   }
 
   resize();
   applyCamera();
+  updateParticles(0, true);
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas);
   document.addEventListener("visibilitychange", onVisibility);
@@ -545,6 +753,16 @@ export function createFigureScene(
         }
       });
       levelAttribute.needsUpdate = true;
+    },
+    setTime(hours) {
+      currentTime = Math.max(0, Math.min(DIAL_HOURS, hours));
+      const next = levelsAt(currentTime);
+      ORGANS.forEach((organ, index) => {
+        levels[index] = next[organ.id];
+      });
+      levelAttribute.needsUpdate = true;
+      // Reduced motion gets a still frame; otherwise the frame loop travels.
+      if (reducedMotion) updateParticles(currentTime, true);
     },
     setOrbit(radians) {
       orbit = radians;
@@ -597,6 +815,8 @@ export function createFigureScene(
       shadow.geometry.dispose();
       shadowMaterial.dispose();
       shadowTexture.dispose();
+      particleGeometry.dispose();
+      particleMaterial.dispose();
       renderer.dispose();
     },
   };

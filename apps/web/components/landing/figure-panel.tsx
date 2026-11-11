@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * The figure column: the canvas holding the glass figure, and under it a
- * 72px sparkline over a 56px dial strip, labelled as illustrative.
+ * The figure column: the canvas holding the glass figure, and under it the
+ * dial strip, labelled as illustrative.
  *
  * Sizing follows the spec except where its own numbers cannot fit: at
  * 1440×900 the chrome (72px header + 40px disclaimer) plus a fixed 700px
@@ -10,15 +10,38 @@
  * is clamped to the viewport between 400 and 700px. On mobile the canvas is
  * full-bleed and at least 50svh.
  *
- * Step 1 shipped the frame; step 2 mounts the code-generated figure. The dial
- * and particles land in step 3. The data-* hooks are what those steps mount
- * into, so the layout does not move again.
+ * The panel is the only place that knows both halves: it holds the scene
+ * handle and the last dial hour, so a dial move that lands before the lazily
+ * imported scene is ready is replayed rather than lost.
  */
 
+import { useCallback, useRef } from "react";
+import DialStrip, { type DialHandle } from "./dial-strip";
 import GlassFigure from "./glass-figure";
-import { type } from "./type";
+import type { FigureScene } from "./figure-scene";
 
 export default function FigurePanel({ className = "" }: { className?: string }) {
+  const sceneRef = useRef<FigureScene | null>(null);
+  const timeRef = useRef(0);
+  // Used by the scroll sequence (step 4) to drive the dial.
+  const dialRef = useRef<DialHandle | null>(null);
+
+  const handleScene = useCallback((scene: FigureScene | null) => {
+    sceneRef.current = scene;
+    if (scene) scene.setTime(timeRef.current);
+  }, []);
+
+  const handleTime = useCallback((hours: number) => {
+    timeRef.current = hours;
+    sceneRef.current?.setTime(hours);
+  }, []);
+
+  const handleDialReady = useCallback((handle: DialHandle) => {
+    dialRef.current = handle;
+    // Text measurement hook: the same handle the scroll sequence will drive.
+    (window as Window & { __dibDial?: DialHandle }).__dibDial = handle;
+  }, []);
+
   return (
     <div className={`w-full ${className}`}>
       <div className="w-full md:ml-auto md:max-w-[672px]">
@@ -26,24 +49,10 @@ export default function FigurePanel({ className = "" }: { className?: string }) 
           data-figure-canvas
           className="relative h-[max(420px,50svh)] w-full overflow-hidden bg-page md:h-[clamp(400px,calc(100svh-330px),700px)] md:rounded-[12px]"
         >
-          <GlassFigure />
+          <GlassFigure onScene={handleScene} />
         </div>
 
-        <div className="mt-4 px-2 md:mt-6 md:max-w-[560px] md:px-0">
-          <div
-            data-dial-sparkline
-            className="h-[72px] w-full rounded-t-[12px] border border-b-0 border-line bg-surface"
-            aria-hidden="true"
-          />
-          <div
-            data-dial-strip
-            className="h-14 w-full rounded-b-[12px] border border-line bg-white"
-            aria-hidden="true"
-          />
-          <p className={`mt-4 text-ink-2 ${type.caption}`}>
-            Illustrative shape, not a real drug.
-          </p>
-        </div>
+        <DialStrip onTime={handleTime} onReady={handleDialReady} />
       </div>
     </div>
   );

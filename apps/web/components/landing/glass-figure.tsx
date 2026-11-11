@@ -17,12 +17,22 @@ import type { FigureScene } from "./figure-scene";
 const TURN_RADIANS = (15 * Math.PI) / 180;
 const TURN_MS = 320;
 
-export default function GlassFigure() {
+type GlassFigureProps = {
+  /** Hands the live scene to the parent so the dial can drive it. */
+  onScene?: (scene: FigureScene | null) => void;
+};
+
+export default function GlassFigure({ onScene }: GlassFigureProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<FigureScene | null>(null);
+  const onSceneRef = useRef(onScene);
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const [interacted, setInteracted] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    onSceneRef.current = onScene;
+  }, [onScene]);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -51,6 +61,7 @@ export default function GlassFigure() {
       sceneRef.current = scene;
       // Text measurement hook: renderer counters for the last frame.
       (window as Window & { __dibFigure?: FigureScene }).__dibFigure = scene;
+      onSceneRef.current?.(scene);
 
       observer = new IntersectionObserver(
         ([entry]) => scene?.setPaused(!entry.isIntersecting),
@@ -64,6 +75,7 @@ export default function GlassFigure() {
       observer?.disconnect();
       scene?.dispose();
       sceneRef.current = null;
+      onSceneRef.current?.(null);
     };
   }, [reducedMotion]);
 

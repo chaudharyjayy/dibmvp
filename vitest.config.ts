@@ -8,6 +8,7 @@ export default defineConfig({
       'api/**/tests/**/*.test.ts',
       'supabase/tests/**/*.test.ts',
       'scripts/tests/**/*.test.ts',
+      'apps/web/tests/**/*.test.ts',
     ],
     globals: false,
   },
