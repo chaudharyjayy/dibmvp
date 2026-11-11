@@ -27,6 +27,11 @@ type DialStripProps = {
   onTime?: (hours: number) => void;
   /** Receives an imperative handle, for the scroll sequence in step 4. */
   onReady?: (handle: DialHandle) => void;
+  /**
+   * Demo sweep 0 → 6 h on mount. Off inside the pinned hero: the scroll
+   * sequence owns the dial there, and two owners would fight per frame.
+   */
+  autoplay?: boolean;
 };
 
 const SPARK_W = 560;
@@ -56,7 +61,7 @@ function clampHours(hours: number): number {
   return hours < 0 ? 0 : hours > DIAL_HOURS ? DIAL_HOURS : hours;
 }
 
-export default function DialStrip({ onTime, onReady }: DialStripProps) {
+export default function DialStrip({ onTime, onReady, autoplay = true }: DialStripProps) {
   const stripRef = useRef<HTMLDivElement | null>(null);
   const fillRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLSpanElement | null>(null);
@@ -123,6 +128,7 @@ export default function DialStrip({ onTime, onReady }: DialStripProps) {
 
   // Autoplay: 0 → 6 h over 4 s, one second after mount.
   useEffect(() => {
+    if (!autoplay) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     let frame = 0;
@@ -157,7 +163,7 @@ export default function DialStrip({ onTime, onReady }: DialStripProps) {
     window.addEventListener("touchstart", stop, { passive: true });
 
     return stop;
-  }, [apply]);
+  }, [apply, autoplay]);
 
   const hoursFromPointer = useCallback((clientX: number) => {
     const strip = stripRef.current;

@@ -68,6 +68,11 @@ export type FigureScene = {
   setOrbit(radians: number): void;
   /** Camera distance from the subject. Spec hero value is 6.4. */
   setZoom(z: number): void;
+  /**
+   * 0–1 brightness boost on the circulating particles, used by the
+   * "distribution" phase so the circulation reads as the active path.
+   */
+  setGlow(amount: number): void;
   /** Animated yaw nudge (chevrons, arrow keys). */
   turnBy(radians: number, ms: number): void;
   /** Direct drag input, in CSS pixels. */
@@ -519,7 +524,8 @@ export function createFigureScene(
   function updateParticles(hours: number, snap: boolean) {
     const blend = snap ? 1 : 0.08;
     const level = curve(hours);
-    particleMaterial.uniforms.uOpacity.value = 0.18 + 0.72 * Math.min(1, level * 2.2);
+    const base = 0.18 + 0.72 * Math.min(1, level * 2.2);
+    particleMaterial.uniforms.uOpacity.value = Math.min(1, base + 0.25 * glow);
 
     for (let i = 0; i < PARTICLE_COUNT; i += 1) {
       let release = (hours - thresholds[i]) / 0.55;
@@ -606,6 +612,7 @@ export function createFigureScene(
   let orbit = 0;
   let zoom = CAMERA_Z;
   let currentTime = 0;
+  let glow = 0;
   let offscreen = false;
   let hidden = document.hidden;
   let disposed = false;
@@ -771,6 +778,9 @@ export function createFigureScene(
     setZoom(z) {
       zoom = z;
       applyCamera();
+    },
+    setGlow(amount) {
+      glow = Math.min(1, Math.max(0, amount));
     },
     turnBy(radians, ms) {
       autoRotate = false;
