@@ -35,7 +35,8 @@
       "packages/**/tests/**/*.test.ts",
       "api/**/tests/**/*.test.ts",
       "supabase/tests/**/*.test.ts",
-      "scripts/tests/**/*.test.ts"
+      "scripts/tests/**/*.test.ts",
+      "apps/web/tests/**/*.test.ts"
     ]
   }
 }

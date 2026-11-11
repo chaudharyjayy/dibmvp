@@ -1,66 +1,423 @@
-/** Hero — nav overlay only, no body content.
- *  Nav: exactly "Home", "How does this work", "About us".
+"use client";
+
+/**
+ * The pinned hero: one sticky 100svh stage inside a 400svh wrapper (280svh on
+ * mobile), so the page scrolls natively and the figure stays put while the
+ * story plays over it.
+ *
+ * Progress is read from the wrapper's own rect, never from a scroll hijack.
+ * Over the first 8% the copy fades out and the figure slides to the centre and
+ * scales to 1.12. Then three phases drive the dial, the camera and the
+ * particles: 0.08–0.36 absorption, 0.36–0.64 distribution, 0.64–0.92
+ * elimination. Past 0.92 the dial is the visitor's again and the closing call
+ * to action fades in.
+ *
+ * Mobile differs in one structural way: the copy sits in normal flow above the
+ * pinned stage instead of on top of it. At 390×844 the copy (≈390px) plus a
+ * 422px canvas plus the dial cannot share one screen, and paying for it by
+ * cutting the figure in half also left the phase captions on top of the dial
+ * strip. In flow, the copy is the first screen, the pin starts with the figure
+ * already centred, and the captions have the space below the dial to
+ * themselves.
+ *
+ * All per-frame values are written straight to refs (style, scene, dial) so
+ * scrolling at 60fps never triggers a React render; only the phase index and
+ * the end state are React state, because they toggle CSS transitions.
  */
+
 import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { DialHandle } from "./dial-strip";
+import { DIAL_HOURS } from "./dial";
+import { EASE_OUT } from "./easing";
+import FigurePanel from "./figure-panel";
+import type { FigureScene } from "./figure-scene";
+import { LOAD, h1Style, riseStyle } from "./load";
+import {
+  P_ELIMINATE_END,
+  P_FADE_END,
+  clamp01,
+  dialTarget,
+  endAt,
+  glowTarget,
+  orbitTarget,
+  phaseAt,
+  zoomTarget,
+} from "./scroll";
+import { type } from "./type";
+
+const H1_LINES = ["See how a drug", "moves through a body,", "hour by hour."];
+
+const PHASES = [
+  {
+    number: "01",
+    title: "Absorption",
+    body: "The dose leaves the gut and reaches the blood.",
+  },
+  {
+    number: "02",
+    title: "Distribution",
+    body: "The illustrative level spreads through the circulation.",
+  },
+  {
+    number: "03",
+    title: "Elimination",
+    body: "The level falls as the body clears it.",
+  },
+] as const;
+
+/** Above this width the copy overlays the stage and the figure slides in. */
+const DESKTOP = "(min-width: 768px)";
 
 export default function Hero() {
-  const NAV_LINKS = [
-    { label: "Home", href: "/" },
-    { label: "How does this work", href: "/how-it-works" },
-    { label: "About us", href: "/about" },
-  ];
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const textRef = useRef<HTMLDivElement | null>(null);
+  const figureRef = useRef<HTMLDivElement | null>(null);
+  const scaleRef = useRef<HTMLElement | null>(null);
+  /** True below 768px: the figure is already centred, so it must not slide. */
+  const compactRef = useRef(false);
+
+  const sceneRef = useRef<FigureScene | null>(null);
+  const dialRef = useRef<DialHandle | null>(null);
+  /** Translation that puts the figure column at the centre of the stage. */
+  const geomRef = useRef({ dx: 0, dy: 0 });
+
+  const [phase, setPhase] = useState(0);
+  const [atEnd, setAtEnd] = useState(false);
+  const phaseRef = useRef(0);
+  const endRef = useRef(false);
+
+  /** What the polite live region announces; null outside the pinned phases. */
+  const announcement = phase > 0 && phase <= PHASES.length ? PHASES[phase - 1] : null;
+
+  const handleScene = useCallback((scene: FigureScene | null) => {
+    sceneRef.current = scene;
+    scaleRef.current =
+      figureRef.current?.querySelector<HTMLElement>("[data-figure-canvas]") ?? null;
+  }, []);
+
+  const handleDial = useCallback((handle: DialHandle | null) => {
+    dialRef.current = handle;
+  }, []);
+
+  /* Centre translation: recomputed when either the stage or the column
+     changes size (font load, rotation, dial label wrapping), and when the
+     desktop/mobile breakpoint is crossed. */
+  useEffect(() => {
+    const stage = stageRef.current;
+    const layer = figureRef.current;
+    if (!stage || !layer) return;
+
+    const measure = () => {
+      const wide = window.matchMedia(DESKTOP).matches;
+      compactRef.current = !wide;
+      geomRef.current = wide
+        ? {
+            dx: (stage.clientWidth - layer.offsetWidth) / 2 - layer.offsetLeft,
+            dy: (stage.clientHeight - layer.offsetHeight) / 2 - layer.offsetTop,
+          }
+        : // Already full-bleed and centred; a slide would push it over the dial.
+          { dx: 0, dy: 0 };
+    };
+
+    measure();
+    scaleRef.current = layer.querySelector<HTMLElement>("[data-figure-canvas]");
+
+    const query = window.matchMedia(DESKTOP);
+    const observer = new ResizeObserver(measure);
+    observer.observe(stage);
+    observer.observe(layer);
+    query.addEventListener("change", measure);
+    window.addEventListener("resize", measure);
+    void document.fonts?.ready.then(measure);
+
+    return () => {
+      observer.disconnect();
+      query.removeEventListener("change", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
+  /* Scroll loop. Reads the wrapper rect, writes styles and scene state. */
+  useEffect(() => {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let dialValue = 0;
+    let glow = 0;
+    let unlocked = false;
+    let lastTranslate = "";
+    let lastScale = "";
+    let raf = 0;
+
+    /* Who owns the dial. Scroll moves it during the pin, but the moment the
+       visitor takes it — Tab or a tap puts focus on the strip, a drag or an
+       arrow key changes it — writing scroll's hour over theirs would make the
+       control look broken. They keep it until focus or the next tap goes
+       somewhere else. */
+    const onStrip = (node: EventTarget | null) =>
+      node instanceof Element && Boolean(node.closest("[data-dial-strip]"));
+    let dialHeld = false;
+    const takeDial = (event: Event) => {
+      if (onStrip(event.target)) dialHeld = true;
+    };
+    const releaseDial = (event: Event) => {
+      if (!onStrip(event.target)) dialHeld = false;
+    };
+    const leaveDial = (event: Event) => {
+      if (onStrip(event.target)) dialHeld = false;
+    };
+    document.addEventListener("focusin", takeDial, true);
+    document.addEventListener("focusin", releaseDial, true);
+    document.addEventListener("focusout", leaveDial, true);
+    document.addEventListener("keydown", takeDial, true);
+    document.addEventListener("pointerdown", releaseDial, true);
+
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const wrapper = wrapperRef.current;
+      const stage = stageRef.current;
+      if (!wrapper || !stage) return;
+
+      const rect = wrapper.getBoundingClientRect();
+      if (rect.bottom <= 0 || rect.top >= window.innerHeight) return;
+
+      const span = wrapper.offsetHeight - stage.offsetHeight;
+      const p = span > 0 ? clamp01(-rect.top / span) : 0;
+
+      /* Copy fades, figure slides to centre and scales up. Under reduced motion
+         the fade stays (it is not movement) and everything else holds still:
+         the lift, the slide and the scale are decorative parallax. */
+      const still = reduced.matches;
+      const fade = clamp01(p / P_FADE_END);
+      if (textRef.current) {
+        textRef.current.style.opacity = String(1 - fade);
+        textRef.current.style.transform = `translate3d(0, ${
+          still ? 0 : (-24 * fade).toFixed(2)
+        }px, 0)`;
+        // Once it is invisible it must also be unclickable and unreachable by
+        // Tab; inert does both without a second disabled state to keep in sync.
+        textRef.current.inert = fade > 0.5;
+      }
+
+      const slide = still ? 0 : EASE_OUT(fade);
+      if (figureRef.current) {
+        const { dx, dy } = geomRef.current;
+        const translate = `translate3d(${(dx * slide).toFixed(1)}px, ${(dy * slide).toFixed(
+          1
+        )}px, 0)`;
+        if (translate !== lastTranslate) {
+          figureRef.current.style.transform = translate;
+          lastTranslate = translate;
+        }
+      }
+      if (scaleRef.current) {
+        /* No CSS scale on mobile: growing a full-bleed canvas pushes its bottom
+           under the dial strip. The camera zoom still moves the figure in.
+           None under reduced motion, for the same reason as the slide. */
+        const scale =
+          compactRef.current || still ? "" : `scale(${(1 + 0.12 * slide).toFixed(3)})`;
+        if (scale !== lastScale) {
+          scaleRef.current.style.transform = scale;
+          lastScale = scale;
+        }
+      }
+
+      /* Camera and particles follow the same progress. */
+      sceneRef.current?.setOrbit(orbitTarget(p));
+      sceneRef.current?.setZoom(zoomTarget(p));
+      const glowGoal = glowTarget(p);
+      glow += (glowGoal - glow) * (reduced.matches ? 1 : 0.12);
+      sceneRef.current?.setGlow(glow);
+
+      /* Dial: scroll owns it until the last phase ends, then it is the
+         visitor's again (drag and keys work without a fight from scroll).
+         While the strip itself holds focus the visitor owns it: a phone tap
+         and a keyboard arrow both focus it, and writing scroll's value over
+         theirs would make the control look broken. Scroll resumes on blur. */
+      const active = document.activeElement;
+      const held = dialHeld || (active instanceof Element && active.hasAttribute("data-dial-strip"));
+      if (p >= P_ELIMINATE_END) {
+        if (!unlocked) {
+          unlocked = true;
+          dialValue = DIAL_HOURS;
+          if (!held) {
+            dialRef.current?.setTime(DIAL_HOURS);
+            sceneRef.current?.setTime(DIAL_HOURS);
+          }
+        }
+      } else {
+        unlocked = false;
+        const goal = dialTarget(p);
+        dialValue += (goal - dialValue) * (reduced.matches ? 1 : 0.12);
+        if (!held) {
+          dialRef.current?.setTime(dialValue);
+          sceneRef.current?.setTime(dialValue);
+        }
+      }
+
+      /* Phase captions and the closing call to action. */
+      const nextPhase = phaseAt(p, phaseRef.current);
+      if (nextPhase !== phaseRef.current) {
+        phaseRef.current = nextPhase;
+        setPhase(nextPhase);
+      }
+      const nextEnd = endAt(p, endRef.current);
+      if (nextEnd !== endRef.current) {
+        endRef.current = nextEnd;
+        setAtEnd(nextEnd);
+      }
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("focusin", takeDial, true);
+      document.removeEventListener("focusin", releaseDial, true);
+      document.removeEventListener("focusout", leaveDial, true);
+      document.removeEventListener("keydown", takeDial, true);
+      document.removeEventListener("pointerdown", releaseDial, true);
+    };
+  }, []);
 
   return (
-    <header className="pointer-events-none fixed inset-x-0 top-0 z-40 flex items-center justify-between px-5 pt-6 sm:px-8 sm:pt-8 md:px-12 lg:px-16">
-      <Link
-        href="/"
-        aria-label="Home"
-        className="pointer-events-auto shrink-0 text-white/90 transition-colors hover:text-white"
-      >
-        <svg
-          viewBox="0 0 256 256"
-          role="img"
-          aria-label="Vibrant Wellness"
-          className="h-8 w-8 fill-current md:h-9 md:w-9"
+    <section className="relative w-full bg-page">
+      <div className="relative mx-auto w-full max-w-[1440px]">
+        <div
+          ref={textRef}
+          data-hero-text
+          className="relative px-5 pb-12 pt-[88px] will-change-transform md:absolute md:left-12 md:top-24 md:w-[592px] md:px-0 md:pb-0 md:pt-0"
         >
-          <path d="M 128 128 C 198.692 128 256 185.308 256 256 L 151.883 256 C 149.812 220.307 120.213 192 84 192 C 47.787 192 18.188 220.307 16.117 256 L 0 256 C 0 185.308 57.308 128 128 128 Z M 104.117 0 C 106.188 35.694 135.787 64 172 64 C 208.213 64 237.812 35.694 239.883 0 L 256 0 C 256 70.692 198.692 128 128 128 C 57.308 128 0 70.692 0 0 Z" />
-        </svg>
-      </Link>
-
-      <nav className="pointer-events-auto absolute left-1/2 flex -translate-x-1/2 items-center gap-6 rounded-full border border-white/10 bg-white/5 px-6 py-2.5 backdrop-blur-xl sm:gap-8 sm:px-8 sm:py-3">
-        {NAV_LINKS.map((link, index) => (
-          <Link
-            key={link.label}
-            href={link.href}
-            className={`whitespace-nowrap text-xs font-medium transition-colors sm:text-sm ${
-              index === 0 ? "text-white" : "text-zinc-400 hover:text-white"
-            }`}
+          <p
+            className={`landing-load text-ink-2 ${type.caption}`}
+            style={riseStyle(LOAD.caption.delay, LOAD.caption.duration, LOAD.caption.y)}
           >
-            {link.label}
-          </Link>
-        ))}
-      </nav>
+            Educational simulator
+          </p>
 
-      <Link
-        href="/signin"
-        aria-label="Account"
-        className="pointer-events-auto hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 backdrop-blur-xl transition hover:border-white/25 hover:text-white md:flex"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          role="img"
-          aria-label="Account"
-          className="h-5 w-5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          <h1 className={`mt-6 text-ink ${type.display}`}>
+            {H1_LINES.map((line, index) => (
+              <span
+                key={line}
+                data-h1-line={index}
+                style={h1Style(index)}
+                className="landing-load block"
+              >
+                {line}
+                {index < H1_LINES.length - 1 ? " " : ""}
+              </span>
+            ))}
+          </h1>
+
+          <p
+            className={`landing-load mt-6 max-w-[480px] text-ink-2 ${type.body}`}
+            style={riseStyle(LOAD.body.delay, LOAD.body.duration, LOAD.body.y)}
+          >
+            Set a profile and a dose, then move the time dial to watch an illustrative drug level
+            rise and fall.
+          </p>
+
+          <div
+            className="landing-load mt-8 flex flex-col items-start gap-5 md:flex-row md:items-center md:gap-8"
+            style={riseStyle(LOAD.actions.delay, LOAD.actions.duration, LOAD.actions.y)}
+          >
+            <Link
+              href="/simulator"
+              className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-ink px-6 text-[15px] font-medium text-white transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
+            >
+              Try the simulator
+            </Link>
+
+            <Link
+              href="/how-it-works"
+              className="inline-flex min-h-6 items-center rounded-[10px] text-[15px] font-medium text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+            >
+              How does this work <span aria-hidden="true">→</span>
+            </Link>
+          </div>
+        </div>
+
+        <div
+          ref={wrapperRef}
+          data-scroll-wrapper
+          className="relative h-[280svh] w-full bg-page md:h-[400svh]"
         >
-          <circle cx="12" cy="8.5" r="3.5" />
-          <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
-        </svg>
-      </Link>
-    </header>
+          <div className="sticky top-0 h-[100svh] w-full overflow-hidden bg-page">
+            <div ref={stageRef} className="relative h-full w-full">
+              <div
+                ref={figureRef}
+                data-hero-figure
+                className="absolute inset-x-0 top-14 will-change-transform md:inset-x-auto md:right-12 md:top-24 md:w-[672px]"
+              >
+                <div
+                  data-load="figure"
+                  className="landing-load"
+                  style={riseStyle(LOAD.figure.delay, LOAD.figure.duration, LOAD.figure.y)}
+                >
+                  <FigurePanel onScene={handleScene} onDial={handleDial} autoplay={false} />
+                </div>
+              </div>
+
+              <div className="pointer-events-none absolute inset-x-5 bottom-[56px] md:bottom-28 md:left-12 md:right-auto md:w-[592px]">
+                <div className="relative h-[150px] md:h-[178px]">
+                  {PHASES.map((item, index) => {
+                    const active = phase === index + 1 && !atEnd;
+                    return (
+                      <div
+                        key={item.number}
+                        data-phase-caption={index + 1}
+                        aria-hidden={!active}
+                        className={`landing-fade absolute inset-x-0 bottom-0 transition-[opacity,transform] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                          active ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
+                        }`}
+                      >
+                        <p className={`text-ink-2 ${type.caption}`}>{item.number}</p>
+                        <h2 className={`mt-3 text-ink ${type.h2}`}>{item.title}</h2>
+                        <p className={`mt-3 max-w-[420px] text-ink-2 ${type.body}`}>{item.body}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* The captions swap on scroll, which a screen reader cannot see
+                  and a keyboard user only hears if something says so. Polite,
+                  and short: the number and the title are the phase; the body
+                  follows so the announcement is not a teaser. */}
+              <p role="status" aria-atomic="true" className="sr-only">
+                {announcement
+                  ? `Phase ${announcement.number} of 03, ${announcement.title}. ${announcement.body}`
+                  : ""}
+              </p>
+
+              <div
+                data-hero-end
+                aria-hidden={!atEnd}
+                className={`landing-fade absolute inset-x-5 bottom-[56px] transition-opacity duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] md:bottom-28 md:left-12 md:right-auto ${
+                  atEnd ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+                }`}
+              >
+                <p className={`text-ink-2 ${type.caption}`}>Ready when you are</p>
+                <div className="mt-4 flex flex-col items-start gap-5 md:flex-row md:items-center md:gap-8">
+                  <Link
+                    href="/simulator"
+                    tabIndex={atEnd ? 0 : -1}
+                    className="flex h-[52px] w-full items-center justify-center rounded-[10px] bg-ink px-6 text-[15px] font-medium text-white transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-12 md:w-auto"
+                  >
+                    Try the simulator
+                  </Link>
+                  <Link
+                    href="/how-it-works"
+                    tabIndex={atEnd ? 0 : -1}
+                    className="inline-flex min-h-6 items-center rounded-[10px] text-[15px] font-medium text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+                  >
+                    How does this work <span aria-hidden="true">→</span>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

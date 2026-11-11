@@ -1,68 +1,45 @@
-"use client";
+/**
+ * Landing page — direction B, "Glass figure".
+ * White page, no vignette: a fixed header, a hero whose right column holds a
+ * code-generated see-through figure, then the "what this is and isn't" section
+ * and a one-line footer.
+ *
+ * Landmarks are deliberate: the header and footer sit outside <main> so that
+ * `banner` and `contentinfo` are real page landmarks rather than generic
+ * containers, and a skip link comes before the navigation. The header is fixed
+ * and the hero is a 400svh pin, so without that link a keyboard user would walk
+ * the nav again on every pass through the page.
+ */
 
-/** Landing stage — a dark, scrollable scene: a full-height hero with the
- *  spinning brain hologram, then a scroll-driven blood-flow flythrough, with the
- *  nav pinned on top and the bottom-right hold-to-change-theme control. */
-
-import { useState } from "react";
-import BloodFlow from "@/components/blood-flow";
-import BrainHologram, { type BrainRegion } from "@/components/brain-hologram";
-import { THEME_COLORS, ThemeToggle, type Theme } from "@/components/theme-toggle";
 import Hero from "./hero";
+import SiteFooter from "./site-footer";
+import SiteHeader from "./site-header";
+import WhatThisIs from "./what-this-is";
 
 export default function Landing() {
-  const [theme, setTheme] = useState<Theme>("red");
-  const [region, setRegion] = useState<BrainRegion | null>(null);
-
-  const { accent, glow } = THEME_COLORS[theme];
-
   return (
-    <main className="relative w-full bg-[#050506] text-white">
-      {/* Hero: one viewport tall, holding the hologram. */}
-      <section className="relative h-[100svh] w-full overflow-hidden">
-        {/* Ambient light behind the hologram, keyed to the current theme. */}
-        <div
-          className="pointer-events-none absolute inset-0 transition-[background] duration-700"
-          style={{
-            background: `radial-gradient(circle at 50% 46%, ${glow} 0%, rgba(5,5,6,0) 62%)`,
-          }}
-        />
+    <div className="w-full bg-page text-ink">
+      {/*
+        Fixed, not absolute: an absolutely positioned skip link parked above
+        the viewport gets scrolled into view when it takes focus, which yanks
+        the page back to the top mid-pin. Fixed elements stay put, so focus
+        does not move the scroll position.
+      */}
+      <a
+        href="#main"
+        className="fixed left-5 top-3 z-[60] -translate-y-24 rounded-[10px] bg-ink px-4 py-3 text-[15px] font-medium text-white focus-visible:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:left-12"
+      >
+        Skip to content
+      </a>
 
-        {/* Faint holographic grid. */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.16]"
-          style={{
-            backgroundImage:
-              "linear-gradient(to right, rgba(255,255,255,0.16) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.16) 1px, transparent 1px)",
-            backgroundSize: "56px 56px",
-            maskImage: "radial-gradient(circle at 50% 50%, black 10%, transparent 72%)",
-            WebkitMaskImage: "radial-gradient(circle at 50% 50%, black 10%, transparent 72%)",
-          }}
-        />
+      <SiteHeader />
 
-        <div className="absolute inset-0">
-          <BrainHologram
-            color={accent}
-            autoRotate
-            rotationSpeed={0.42}
-            clickable
-            onRegionSelect={setRegion}
-            onRegionHover={setRegion}
-          />
-        </div>
-      </section>
+      <main id="main" className="w-full">
+        <Hero />
+        <WhatThisIs />
+      </main>
 
-      {/* Scroll: the camera flies down a vessel while red blood cells stream past. */}
-      <BloodFlow color={accent} />
-
-      <Hero />
-
-      {/* Screen-reader summary of the last picked region. */}
-      <p className="sr-only" aria-live="polite">
-        {region ? `Selected ${region.display}` : "No region selected"}
-      </p>
-
-      <ThemeToggle currentTheme={theme} setCurrentTheme={setTheme} />
-    </main>
+      <SiteFooter />
+    </div>
   );
 }
