@@ -1,7 +1,7 @@
 [
   {
-    "id": "caffeine",
-    "name": "Caffeine",
+    "id": "acetaminophen",
+    "name": "Acetaminophen (paracetamol)",
     "route": "oral",
     "model": "one-compartment",
     "ka_per_h": null,
@@ -10,11 +10,11 @@
     "V_L_per_kg": null,
     "label_dose_range_mg": null,
     "sources": [],
-    "notes": "TODO: source from PK-DB / label. All numeric fields are placeholders filled on Day 1 with cited values."
+    "notes": "TODO: source from PK-DB / label. All numeric fields are placeholders filled on Day 1 with cited values. The id is the catalogue id: public.drugs holds 'acetaminophen' (the US name for paracetamol), and drug_pk.drug_id is a foreign key to it."
   },
   {
-    "id": "paracetamol",
-    "name": "Paracetamol",
+    "id": "caffeine",
+    "name": "Caffeine",
     "route": "oral",
     "model": "one-compartment",
     "ka_per_h": null,
@@ -36,6 +36,6 @@
     "V_L_per_kg": null,
     "label_dose_range_mg": null,
     "sources": [],
-    "notes": "TODO: source from PK-DB / drug label. All numeric fields are placeholders filled on Day 1 with cited values."
+    "notes": "TODO: source from PK-DB / label. All numeric fields are placeholders filled on Day 1 with cited values."
   }
 ]

@@ -21,7 +21,12 @@
     "data:pk:dry": "tsx scripts/data/import-pk.ts --dry",
     "dev:web": "npm -w @dib/web run dev",
     "build:web": "npm -w @dib/web run build",
-    "start:web": "npm -w @dib/web run start"
+    "start:web": "npm -w @dib/web run start",
+    "data:labels": "tsx scripts/data/fetch-labels.ts",
+    "data:pk:candidates": "tsx scripts/data/extract-pk.ts",
+    "data:interactions:candidates": "tsx scripts/data/extract-interactions.ts",
+    "data:compare": "tsx scripts/data/compare-coverage.ts",
+    "data:pk:verify": "tsx scripts/data/withdraw-unverified-pk.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

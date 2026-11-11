@@ -34,6 +34,10 @@ const SKIP_DIRS = new Set([
   'node_modules', '.git', 'dist', '.vercel', '.next', 'coverage',
   // build output + static assets, not copy
   'out', 'build', '.turbo',
+  // The label cache holds raw FDA label text. It is upstream source material
+  // that we quote, not copy we wrote: a label is allowed to say "recommended
+  // dose". It is git-ignored and never shipped.
+  '.cache',
 ]);
 const TEXT_FILE = /\.(ts|tsx|js|jsx|mjs|cjs|json|md|txt|html|css)$/;
 const ALLOW_DIRECTIVE = 'lint-copy: allow';

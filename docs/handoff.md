@@ -59,10 +59,27 @@ directly, so a new machine does not need a local copy of the dump.
 **Parameters — cited, one row at a time, mostly not there yet.**
 `data/drugs.json` is the engine's short list; numeric PK fields stay `null`
 until a cited value exists. `data/interactions.json` is empty until pairs are
-hand-checked. `data/pk-review.csv` currently holds three rows whose reviewers and
-citations are placeholders — they are examples of the shape, not approved data,
-and `npm run data:pk` will load them as such. A drug becomes simulatable only
-when all four parameters are approved.
+hand-checked. `data/pk-review.csv` holds three **pending** rows for
+caffeine, acetaminophen and ibuprofen, each with a real DailyMed citation and
+the sentence the value came from (`data/pk-evidence.csv` has one row per
+parameter). A drug is simulatable only when all four parameters are approved,
+so nothing is simulatable yet.
+
+The label pipeline that produced them: `npm run data:labels` fetches the FDA
+labels, `npm run data:pk:candidates` extracts the values, and
+`npm run data:compare` writes `data/coverage-report.md`. What the labels
+actually contain, measured: **no label states an absorption rate constant**,
+and most state a parameter or two — acetaminophen gives CL 0.27 L/h/kg and
+V 0.8 L/kg from its own table, ibuprofen gives V 0.12 L/kg but only CL/F
+(which is not clearance), caffeine gives V 0.6 L/kg. The missing values need
+PK-DB or a paper; PK-DB's terms require citing the PK-DB paper and each
+original study, and coauthorship above ten studies.
+
+`npm run data:pk:verify` fetches every PK row's citation and checks the
+quoted sentence is really in it. It demoted two rows whose citations pointed
+at DailyMed pages that do not exist and whose quotes were placeholders
+(reviewer names "John Smith" and "Jane Doe"); they are `pending` now and the
+simulator reads nothing from `drug_pk_public`.
 
 **Local snapshot, not in the repo.** `/Users/Jayesh/drugs-schema/` holds the
 migration SQL, the import scripts, a catalogue preview and the 88 MB

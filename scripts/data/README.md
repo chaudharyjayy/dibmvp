@@ -96,3 +96,59 @@ importing anything from it.
   suggest candidates, but a human must paste the quote and approve the row.
 - It does not import interactions. `data/interactions.json` stays empty until
   pairs are hand-checked against a citation.
+
+## The label pipeline (candidates only)
+
+Four scripts turn FDA labels into *candidates* for a human to check. None of
+them can approve anything, and none of them write `data/interactions.json`.
+
+```bash
+npm run data:labels                  # fetch labels, cache the raw text
+npm run data:pk:candidates           # read the cached labels, extract PK candidates
+npm run data:interactions:candidates # read the interaction sections, find pairs
+npm run data:compare                  # what we hold vs what the labels gave us
+npm run data:pk:verify                # check every PK row's citation supports its quote
+```
+
+| Script | Writes | What it does |
+| --- | --- | --- |
+| `fetch-labels.ts` | `data/.cache/labels/` (git-ignored) | Searches openFDA for one label per drug, rejects combination products, and checks the DailyMed set id really exists. The citation is the DailyMed page; openFDA is the machine-readable mirror. |
+| `extract-pk.ts` | `data/pk-evidence.csv`, `data/pk-review.candidates.csv` | Pulls the pharmacokinetic sentences out of the label, including its numeric tables, and records the exact sentence each value came from. Every row is `pending` with no reviewer. |
+| `extract-interactions.ts` | `data/interactions.candidates.csv` | Finds drugs from our own catalogue that a label's interaction section mentions, with the sentence and a suggested severity. |
+| `compare-coverage.ts` | `data/coverage-report.md` | Compares the engine list, the catalogue, the labels and the database, and says what each drug still lacks. |
+| `withdraw-unverified-pk.ts` | `public.drug_pk` | Fetches every row's citation and checks the quoted sentence is actually in it. A row whose citation does not support it is demoted to `pending`; nothing is ever approved or deleted. |
+
+### What the labels actually contain
+
+Checked on the four drugs in the engine list, with the values an oral one-
+compartment model needs:
+
+| | ka | F | CL | V |
+| --- | --- | --- | --- | --- |
+| acetaminophen | no | no | 0.27 L/h/kg (adults, label table) | 0.8 L/kg (adults, label table) |
+| ibuprofen | no | no | CL/F only, which is not clearance | 0.12 L/kg (adults) |
+| caffeine | no | "not fully examined" | no | 0.6 L/kg (adults) |
+| aspirin | no | 50–75% of the dose reaches circulation | qualitative only | 10 L (total) |
+
+So **no label states an absorption rate constant**, and most state a parameter
+or two. The candidates therefore have nulls, and that is the truth rather than
+a gap in the parser. A dose range is not extracted at all: it is read from the
+label by a human.
+
+### Why combination products are rejected
+
+openFDA's `generic_name` holds the whole ingredient list of a product, so
+searching "caffeine" returns aspirin/caffeine tablets and searching
+"acetaminophen" returns hydrocodone/acetaminophen capsules. Their clinical
+pharmacology section describes a different drug. `fetch-labels.ts` only accepts
+a label whose every substance is the drug being sourced (a salt counts as the
+same drug).
+
+### Names are normalised, everywhere
+
+"paracetamol" (our engine list), "acetaminophen" (US labels and the catalogue)
+and "Acetaminophen (paracetamol)" (a display name) are one substance.
+`scripts/data/lib/names.ts` maps them to one form, so a drug does not look like
+two drugs and a pair of names does not become an interaction with itself. The
+catalogue id is also what `drug_pk.drug_id` must be, because it is a foreign
+key to `public.drugs.id`.
