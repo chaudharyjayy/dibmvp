@@ -147,6 +147,37 @@ function buildHemisphereGrid(side: -1 | 1): THREE.BufferGeometry {
   return geometry;
 }
 
+/** Solid, slightly folded body for the cerebellum. */
+function buildCerebellumSurface(): THREE.BufferGeometry {
+  const geometry = new THREE.SphereGeometry(1, 44, 28);
+  const position = geometry.getAttribute("position") as THREE.BufferAttribute;
+  const v = new THREE.Vector3();
+
+  for (let i = 0; i < position.count; i += 1) {
+    v.fromBufferAttribute(position, i);
+    // Horizontal folia: tight ripples stacked along the vertical axis.
+    const folia =
+      0.045 * Math.sin(v.y * 24) + 0.03 * Math.sin(v.x * 12 + v.z * 9);
+    v.multiplyScalar(1 + folia);
+    position.setXYZ(i, v.x, v.y, v.z);
+  }
+
+  position.needsUpdate = true;
+  geometry.scale(0.56, 0.3, 0.4);
+  geometry.translate(0, -0.36, -0.78);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Tapered brainstem running from the underside toward the spinal cord. */
+function buildBrainstemSurface(): THREE.BufferGeometry {
+  const geometry = new THREE.CylinderGeometry(0.15, 0.085, 0.46, 26, 6, false);
+  geometry.rotateX(-0.12);
+  geometry.translate(0, -0.6, 0.06);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 /** Classifies a point in brain-local space into a lobe. */
 function classifyRegion(point: THREE.Vector3): BrainRegion {
   const side: BrainRegion["side"] =
@@ -203,6 +234,10 @@ export function BrainHologram({
 
   // Recolour without rebuilding the scene.
   const materialsRef = useRef<THREE.Material[]>([]);
+  // Opaque brain body: dark accent-tinted base with an accent emissive glow.
+  const bodyMaterialsRef = useRef<THREE.MeshStandardMaterial[]>([]);
+  // Accent-tinted lights that wrap the solid body in colour.
+  const accentLightsRef = useRef<THREE.Light[]>([]);
 
   useEffect(() => {
     const accent = new THREE.Color(color);
@@ -211,6 +246,13 @@ export function BrainHologram({
       withColor.color?.set(accent);
       const emissive = material as THREE.Material & { emissive?: THREE.Color };
       emissive.emissive?.set(accent);
+    }
+    for (const material of bodyMaterialsRef.current) {
+      material.color.copy(accent).multiplyScalar(0.18);
+      material.emissive.copy(accent);
+    }
+    for (const light of accentLightsRef.current) {
+      light.color.copy(accent);
     }
   }, [color]);
 
@@ -249,6 +291,26 @@ export function BrainHologram({
     const disposables: Array<{ dispose: () => void }> = [];
     const materials: THREE.Material[] = [];
 
+    // Lighting for the solid body that sits inside the particle shell.
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.32);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    keyLight.position.set(2.6, 3.4, 3.2);
+    const fillLight = new THREE.DirectionalLight(accent, 0.9);
+    fillLight.position.set(-3.2, 0.5, 1.8);
+    const rimLight = new THREE.DirectionalLight(accent, 1.6);
+    rimLight.position.set(-0.7, 1.4, -3.4);
+    scene.add(ambientLight, keyLight, fillLight, rimLight);
+
+    const bodyMaterial = new THREE.MeshStandardMaterial({
+      color: accent.clone().multiplyScalar(0.18),
+      emissive: accent,
+      emissiveIntensity: 0.2,
+      roughness: 0.72,
+      metalness: 0.06,
+      side: THREE.DoubleSide,
+    });
+    materials.push(bodyMaterial);
+
     const shellMaterial = new THREE.MeshBasicMaterial({
       color: accent,
       transparent: true,
@@ -282,6 +344,13 @@ export function BrainHologram({
       const surfaceGeometry = buildHemisphereSurface(side);
       const gridGeometry = buildHemisphereGrid(side);
 
+      // Solid body, inset just under the dot shell so the cloud reads as a
+      // surface over a real brain rather than an empty shell.
+      const body = new THREE.Mesh(surfaceGeometry, bodyMaterial);
+      body.scale.setScalar(0.965);
+      brain.add(body);
+      hitTargets.push(body);
+
       const shell = new THREE.Mesh(surfaceGeometry, shellMaterial);
       brain.add(shell);
       hitTargets.push(shell);
@@ -294,6 +363,19 @@ export function BrainHologram({
 
       disposables.push(surfaceGeometry, gridGeometry);
     }
+
+    // Hindbrain and stem close the silhouette below the hemispheres.
+    const cerebellumGeometry = buildCerebellumSurface();
+    const cerebellum = new THREE.Mesh(cerebellumGeometry, bodyMaterial);
+    brain.add(cerebellum);
+    hitTargets.push(cerebellum);
+    disposables.push(cerebellumGeometry);
+
+    const brainstemGeometry = buildBrainstemSurface();
+    const brainstem = new THREE.Mesh(brainstemGeometry, bodyMaterial);
+    brain.add(brainstem);
+    hitTargets.push(brainstem);
+    disposables.push(brainstemGeometry);
 
     // Equatorial reference ring, like a scanner trace.
     const ringGeometry = new THREE.RingGeometry(1.02, 1.045, 128);
@@ -312,8 +394,6 @@ export function BrainHologram({
     disposables.push(ringGeometry);
     materials.push(ringMaterial);
 
-    materialsRef.current = materials;
-
     // A marker that highlights the region under the pointer.
     const markerGeometry = new THREE.SphereGeometry(0.028, 12, 12);
     const markerMaterial = new THREE.MeshBasicMaterial({
@@ -326,6 +406,18 @@ export function BrainHologram({
     brain.add(marker);
     disposables.push(markerGeometry);
     materials.push(markerMaterial);
+
+    // Only the translucent accents are recoloured to the raw accent colour;
+    // the solid body keeps its darkened base and is handled separately.
+    materialsRef.current = [
+      shellMaterial,
+      gridMaterial,
+      pointMaterial,
+      ringMaterial,
+      markerMaterial,
+    ];
+    bodyMaterialsRef.current = [bodyMaterial];
+    accentLightsRef.current = [fillLight, rimLight];
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -445,6 +537,8 @@ export function BrainHologram({
       for (const item of disposables) item.dispose();
       for (const material of materials) material.dispose();
       materialsRef.current = [];
+      bodyMaterialsRef.current = [];
+      accentLightsRef.current = [];
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
