@@ -11,13 +11,13 @@ export default function AboutPage() {
   return (
     <main className="min-h-screen bg-white text-zinc-900">
       <section className="p-8">
-        <heading>heading</heading>
+        <h2>heading</h2>
         <p>this is a paragraph</p>
-        <heading>heading</heading>
+        <h2>heading</h2>
         <p>this is a paragraph</p>
-        <heading>heading</heading>
+        <h2>heading</h2>
         <p>this is a paragraph</p>
-        <heading>heading</heading>
+        <h2>heading</h2>
         <p>this is a paragraph</p>
         <div className="mt-8">
           <Link

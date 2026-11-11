@@ -13,15 +13,15 @@ export default function HowItWorksPage() {
       <section className="p-8">
         <ol className="space-y-4">
           <li>
-            <heading>heading</heading>
+            <h2>heading</h2>
             <p>this is a paragraph</p>
           </li>
           <li>
-            <heading>heading</heading>
+            <h2>heading</h2>
             <p>this is a paragraph</p>
           </li>
           <li>
-            <heading>heading</heading>
+            <h2>heading</h2>
             <p>this is a paragraph</p>
           </li>
         </ol>
