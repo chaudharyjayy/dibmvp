@@ -102,11 +102,18 @@ by the Blender anatomy model (`32f90e5` for the export pipeline, then the
 scene commit on top):
 
 - Source: `assets/anatomy/human_anatomy.blend` (+ `assets/anatomy/anatomy.py`,
-  the script that builds it). Export: `scripts/anatomy/export-web.py` →
+  the script that builds it). The meshes it reads come from BodyParts3D and
+  are fetched, not committed: `scripts/anatomy/fetch-meshes.sh`. See
+  `assets/anatomy/README.md` for the licence and the node-name contract.
+  Export: `scripts/anatomy/export-web.py` →
   `apps/web/public/models/human_anatomy.glb`.
-- Budget: 94,626 triangles, ~1.7 MB. Replaces the generated lathe figure
+- Budget: ~114k triangles, ~2.1 MB. Replaces the generated lathe figure
   (was ~11k triangles). `geometryTriangles` in `getStats()` reports the GLB's
   count.
+- The brain is 35 named gyri and 27 named nuclei, one mesh each, so pointing
+  at the figure says which gyrus is under the pointer and which lobe it
+  belongs to (`brain-regions.ts`). The names come from the database's own
+  parts list, so the readout is anatomical rather than a guess.
 - The GLB has no digestive tract, so `stomach` and `gut` have no mesh to tint.
   Phase 01 (absorption) is carried by the particles leaving the abdominal
   source; the liver, lungs, heart, kidneys and the vessels carry the blood /

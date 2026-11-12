@@ -20,9 +20,12 @@ const TURN_MS = 320;
 type GlassFigureProps = {
   /** Hands the live scene to the parent so the dial can drive it. */
   onScene?: (scene: FigureScene | null) => void;
+  /** Hands the canvas to the parent, so overlays can measure themselves
+   *  against it. */
+  onCanvas?: (canvas: HTMLCanvasElement | null) => void;
 };
 
-export default function GlassFigure({ onScene }: GlassFigureProps) {
+export default function GlassFigure({ onScene, onCanvas }: GlassFigureProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<FigureScene | null>(null);
   const onSceneRef = useRef(onScene);
@@ -35,6 +38,11 @@ export default function GlassFigure({ onScene }: GlassFigureProps) {
   useEffect(() => {
     onSceneRef.current = onScene;
   }, [onScene]);
+
+  const onCanvasRef = useRef(onCanvas);
+  useEffect(() => {
+    onCanvasRef.current = onCanvas;
+  }, [onCanvas]);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -53,6 +61,8 @@ export default function GlassFigure({ onScene }: GlassFigureProps) {
     let cancelled = false;
 
     const coarse = window.matchMedia("(pointer: coarse)").matches;
+
+    onCanvasRef.current?.(canvas);
 
     import("./figure-scene").then(({ createFigureScene }) => {
       if (cancelled) return;
@@ -79,6 +89,7 @@ export default function GlassFigure({ onScene }: GlassFigureProps) {
       scene?.dispose();
       sceneRef.current = null;
       onSceneRef.current?.(null);
+      onCanvasRef.current?.(null);
     };
   }, [reducedMotion]);
 
