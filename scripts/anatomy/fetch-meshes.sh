@@ -89,13 +89,16 @@ if [[ -f "$OBJ_LIST" ]]; then
 
   if [[ ${#want_obj[@]} -gt 0 ]]; then
     echo "fetching ${#want_obj[@]} meshes from the 4.0 archive"
+    # The archive is 136 MB and the server is slow, so it is kept between runs.
+    archive="$DEST/isa_BP3D_4.0_obj_99.zip"
+    if [[ ! -f "$archive" ]]; then
+      curl -fsSL --retry 3 --retry-delay 3 -o "$archive.part" "$ARCHIVE" &&
+        mv "$archive.part" "$archive"
+    fi
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
-    if [[ ! -f "$tmp/archive.zip" ]]; then
-      curl -fsSL --retry 3 --retry-delay 3 -o "$tmp/archive.zip" "$ARCHIVE"
-    fi
     for name in "${want_obj[@]}"; do
-      unzip -o -j "$tmp/archive.zip" "isa_BP3D_4.0_obj_99/$name" -d "$OBJ_DIR" >/dev/null
+      unzip -o -j "$archive" "isa_BP3D_4.0_obj_99/$name" -d "$OBJ_DIR" >/dev/null
     done
   fi
 fi
