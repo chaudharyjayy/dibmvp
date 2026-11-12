@@ -30,11 +30,14 @@ BLEND = os.path.join(REPO, "assets", "anatomy", "human_anatomy.blend")
 GLB = os.path.join(REPO, "apps", "web", "public", "models", "human_anatomy.glb")
 
 # Decimate targets (base-triangle budget; collapse+triangulate means the
-# reported polygon count is the triangle count). The .blend is already
-# decimated to roughly this level, so most of these are no-ops; they are here
-# so the web's budget is stated in one place and enforced.
+# reported polygon count is the triangle count).
+#
+# The skin carries the figure: it is a glass shell and its triangle edges are
+# what draw the body's network of veins. Collapsing it hard shatters it into
+# shards, so it gets the largest share of the budget and is smoothed
+# afterwards to close the gaps the collapse leaves.
 TARGETS = {
-    "Body": 14000,
+    "Body": 40000,
     "Cerebellum": 6000,
     "BrainStem": 4000,
     "Liver": 4000,
@@ -48,7 +51,13 @@ TARGETS = {
     "Bronchus_R": 2000,
 }
 
-# The brain is 65 named gyri and nuclei. They are decimated individually so a
+# The skin is collapsed and then smoothed: the collapse leaves slivers and
+# holes along the creases, and the smoothing closes them so the shell reads as
+# glass rather than as broken plates.
+SKIN_SMOOTH_ITERATIONS = 6
+SKIN_SMOOTH_FACTOR = 0.5
+
+# The brain is 62 named gyri and nuclei. They are decimated individually so a
 # small gyrus is not flattened into its large neighbours, and the total is
 # kept near the rest of the figure so the model still loads in one go.
 BRAIN_PART_TARGET = 400
@@ -56,7 +65,7 @@ BRAIN_PART_TARGET = 400
 # Every mesh that is neither an organ nor the shell: the great vessels, the
 # heart's coronaries and the great cardiac veins. They are small and numerous,
 # so they share one budget rather than getting one each.
-VESSEL_TARGET = 1200
+VESSEL_TARGET = 600
 
 REMOVE = ("Platform", "Ring")
 
@@ -90,6 +99,32 @@ def decimate(obj, target):
     return current, triangles(obj)
 
 
+def smooth(ob, factor, iterations):
+    """Laplacian smoothing, applied after a collapse.
+
+    Collapsing a shell leaves slivers and holes along its creases; smoothing
+    closes them. The skin needs this: without it the glass shell breaks into
+    shards that read as broken plates rather than as a body.
+    """
+    mod = ob.modifiers.new("SmoothWeb", "SMOOTH")
+    mod.factor = factor
+    mod.iterations = iterations
+    dg = bpy.context.evaluated_depsgraph_get()
+    me = bpy.data.meshes.new_from_object(ob.evaluated_get(dg))
+    old = ob.data
+    mats = list(old.materials)
+    ob.modifiers.clear()
+    ob.data = me
+    bpy.data.meshes.remove(old)
+    me.materials.clear()
+    for m in mats:
+        me.materials.append(m)
+    try:
+        ob.data.shade_smooth()
+    except Exception:
+        pass
+
+
 def main():
     print("SOURCE", BLEND)
     bpy.ops.wm.open_mainfile(filepath=BLEND)
@@ -106,6 +141,9 @@ def main():
             print("MISSING_OBJECT", name)
             continue
         old, new = decimate(ob, target)
+        if name == "Body":
+            smooth(ob, SKIN_SMOOTH_FACTOR, SKIN_SMOOTH_ITERATIONS)
+            new = triangles(ob)
         print("decimated %-12s %9d -> %9d" % (name, old, new))
 
     # Every other mesh is a vessel or a vessel fragment: the heart's coronaries
