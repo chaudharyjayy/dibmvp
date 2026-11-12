@@ -77,7 +77,71 @@ the canvas in CSS. Both stop under `prefers-reduced-motion`.
 
 ## Where the theme stops
 
-The landing page and the fixed disclaimer are dark. The simulator, the sign-in
-panel and the other routes keep the light shadcn theme: the landing page is
-the marketing surface, and the simulator is a working tool. The disclaimer is
-dark everywhere because it is fixed chrome on every route.
+The landing page, the simulator and the fixed disclaimer are dark. The
+sign-in panel and the other routes keep the light shadcn theme: the landing
+page and the simulator are the two surfaces that carry the model, and the
+disclaimer is dark everywhere because it is fixed chrome on every route.
+
+## The simulator
+
+The simulator is the same instrument panel as the landing page, turned to
+work. The rules below are what it is held to; the palette, the type and the
+devices above are shared with the landing and are not restated.
+
+### The layout
+
+Three columns on a desktop, and the model is the middle one:
+
+1. **Left — the inputs.** The condition, the description, the profile, the
+   dose schedule, and the button that runs it. The panel scrolls on its own
+   so the inputs never push the model off screen.
+2. **Middle — the model.** The canvas, the readouts under it, and the time
+   dial under those. The column is sticky: the model stays put while the
+   walkthrough scrolls past it.
+3. **Right — the walkthrough.** One card per step, each with the organ's
+   name, what the engine's numbers say at that moment, and the numbers
+   themselves.
+
+On a phone the order inverts to model, inputs, walkthrough, and the model
+becomes sticky under the bar so the camera move is always visible.
+
+### Two controls, two jobs
+
+- **The dial moves time.** It runs over the simulated window, and the peak
+  is marked on the track. Everything drawn and every number on screen is
+  read at the dial's hour, so the glow on the body and the figures in the
+  narration are always the same instant.
+- **The scroll moves the camera.** The step whose middle is nearest the
+  middle of the screen is the step being read; the camera frames that
+  organ, and it is the only organ that is lit.
+
+The two are deliberately independent. The dial is a control; the scroll is
+reading. Neither one is a way to change the dose.
+
+### The walkthrough
+
+- The first step is always the whole body: the camera stays on the figure
+  and the numbers are the run's overall state.
+- Each step after that is one organ, in the order the condition lists.
+- The narration's numbers are the engine's own — the concentration, the
+  amount in the gut, the amount in the blood, the clearance rate — read at
+  the dial's hour. There are no other numbers on the page.
+- The condition chooses which organs the walkthrough visits. It does not
+  predict anything. The narration says so where it matters, and the
+  wording is pinned by a test.
+
+### Rules
+
+- **No disease claims.** The simulator does not model diseases, does not
+  say a drug treats a condition, and does not give dosing advice. The
+  condition is a lens on the walkthrough, not a diagnosis.
+- **The organ has to stay recognisable.** In the simulator the camera is
+  close, so the drug level shows as brightness and a rim rather than
+  repainting the tissue. On the landing figure, seen whole, the organ
+  fills with the accent as before.
+- **No floating labels over the anatomy.** The organ's name sits in the
+  corner of the canvas and a small reticle marks the organ; the name never
+  covers the thing it names.
+- **The browser's own validation bubbles do not appear.** The panel says
+  what is wrong with the input, in the panel, in the same words every time.
+

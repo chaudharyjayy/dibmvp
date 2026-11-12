@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { classifyPart, regionOf, sideOf } from "../components/landing/brain-regions";
-import { BRAIN_PART_NAMES } from "../components/landing/brain-part-names";
+import { classifyPart, regionOf, sideOf } from "../components/anatomy/regions";
+import { BRAIN_PART_NAMES } from "../components/anatomy/part-names";
 
 /**
  * The brain region readout claims to name real anatomy, so these tests pin

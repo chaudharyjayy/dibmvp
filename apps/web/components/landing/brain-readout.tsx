@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import type { BrainRegion } from "./brain-regions";
+import type { BrainRegion } from "@/components/anatomy/regions";
 import type { FigureScene } from "./figure-scene";
 
 type BrainReadoutProps = {

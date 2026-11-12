@@ -20,11 +20,26 @@
  */
 
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { EASE_OUT } from "./easing";
 import { curve, DIAL_HOURS, levelsAt, type OrganId, type OrganLevels } from "./dial";
-import { regionOf, type BrainRegion } from "./brain-regions";
-import { BRAIN_PART_NAMES } from "./brain-part-names";
+import { loadAnatomyModel } from "@/components/anatomy/model";
+import {
+  BASE,
+  FOLLOW,
+  GLB,
+  baseFor,
+  isBrainMesh,
+} from "@/components/anatomy/contract";
+import {
+  BODY_FRAGMENT,
+  BODY_VERTEX,
+  BRAIN_FRAGMENT,
+  BRAIN_VERTEX,
+  ORGAN_FRAGMENT,
+  ORGAN_VERTEX,
+} from "@/components/anatomy/shaders";
+import { regionOf, type BrainRegion } from "@/components/anatomy/regions";
+import { BRAIN_PART_NAMES } from "@/components/anatomy/part-names";
 
 export type { OrganId };
 
@@ -112,15 +127,15 @@ const CAMERA_Z = 6.4;
 const COLORS = {
   body: 0x4fb8ff,
   tint: 0x22d3ee,
-  // Base colours as they came out of the .blend, as raw sRGB components.
-  brain: 0x9e4d4d, // (0.62, 0.30, 0.30)
-  airway: 0xdbe0eb, // (0.86, 0.88, 0.92)
-  heart: 0x4d0304, // (0.30, 0.012, 0.016)
-  kidney: 0x420a08, // (0.26, 0.04, 0.032)
-  liver: 0x330805, // (0.20, 0.032, 0.018)
-  lung: 0xb23338, // (0.70, 0.20, 0.22)
-  artery: 0x8c0505, // (0.55, 0.02, 0.02)
-  vein: 0x0a1266, // (0.04, 0.07, 0.40)
+  // The tissue colours as they came out of the .blend, as raw sRGB components.
+  brain: BASE.brain,
+  airway: BASE.airway,
+  heart: BASE.heart,
+  kidney: BASE.kidney,
+  liver: BASE.liver,
+  lung: BASE.lung,
+  artery: BASE.artery,
+  vein: BASE.vein,
 } as const;
 
 /** Raw sRGB components — custom shaders write straight to the framebuffer. */
@@ -133,248 +148,6 @@ function srgb(hex: number): THREE.Color {
 }
 
 const ease = EASE_OUT;
-
-/* ------------------------------------------------------------------ */
-/* Shaders                                                             */
-/* ------------------------------------------------------------------ */
-
-const BODY_VERTEX = /* glsl */ `
-  varying vec3 vWorldNormal;
-  varying vec3 vViewDir;
-  varying float vWorldY;
-  void main() {
-    vec4 world = modelMatrix * vec4(position, 1.0);
-    vWorldNormal = normalize(mat3(modelMatrix) * normal);
-    vViewDir = normalize(cameraPosition - world.xyz);
-    vWorldY = world.y;
-    gl_Position = projectionMatrix * viewMatrix * world;
-  }
-`;
-
-const BODY_FRAGMENT = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uScan;
-  varying vec3 vWorldNormal;
-  varying vec3 vViewDir;
-  varying float vWorldY;
-  void main() {
-    vec3 n = normalize(vWorldNormal);
-    vec3 v = normalize(vViewDir);
-    // The skin is a thin sheet, so what reads is its edge: the light gathers
-    // where the surface turns away from the eye. The Fresnel term alone is
-    // not enough — on a sheet this thin, the whole surface catches it and
-    // the body turns into a solid white shell.
-    float facing = abs(dot(n, v));
-    // A dead zone in the middle of the term, so the flat of the sheet stays
-    // clear and the organs read through it.
-    float edge = smoothstep(0.45, 0.96, 1.0 - facing);
-    // The scan band is what makes it read as a hologram rather than a ghost:
-    // one horizontal band of light travelling down the body.
-    float band = exp(-pow((vWorldY - uScan) * 6.5, 2.0));
-    float alpha = edge * 0.85 + band * 0.12;
-    gl_FragColor = vec4(uColor * (0.85 + band * 1.5), alpha);
-  }
-`;
-
-/* One lit-with-tint shader for every organ, but with the level as a uniform:
-   the GLB organs are plain meshes, not an InstancedMesh. */
-const ORGAN_VERTEX = /* glsl */ `
-  varying vec3 vNormalW;
-  void main() {
-    vNormalW = normalize(mat3(modelMatrix) * normal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const ORGAN_FRAGMENT = /* glsl */ `
-  uniform vec3 uBase;
-  uniform vec3 uTint;
-  uniform float uLevel;
-  uniform vec3 uLightDir;
-  uniform float uLightIntensity;
-  varying vec3 vNormalW;
-  void main() {
-    vec3 n = normalize(vNormalW);
-    float level = clamp(uLevel, 0.0, 1.0);
-    vec3 base = mix(uBase, uTint, pow(level, 0.8));
-    float lambert = clamp(dot(n, normalize(uLightDir)), 0.0, 1.0);
-    // Lifted and self-lit: the model's own tissue colours are dark reds and
-    // would disappear against a dark panel, so the tissue carries its own
-    // glow and the level adds the accent on top.
-    vec3 lit = base * (0.55 + 0.45 * lambert * uLightIntensity) * 1.45;
-    vec3 emissive = uTint * (0.16 + 0.45 * level);
-    gl_FragColor = vec4(lit + emissive, 1.0);
-  }
-`;
-
-/* Brain: the tissue look, plus a Fresnel rim so the folds read as a solid form
-   inside the glass head. The GLB carries no per-vertex tone, so the tone
-   term is gone; the rim does the same job. */
-const BRAIN_VERTEX = /* glsl */ `
-  varying vec3 vNormalW;
-  varying vec3 vViewDir;
-  void main() {
-    vec4 world = modelMatrix * vec4(position, 1.0);
-    vNormalW = normalize(mat3(modelMatrix) * normal);
-    vViewDir = normalize(cameraPosition - world.xyz);
-    gl_Position = projectionMatrix * viewMatrix * world;
-  }
-`;
-
-const BRAIN_FRAGMENT = /* glsl */ `
-  uniform vec3 uBase;
-  uniform vec3 uTint;
-  uniform vec3 uLightDir;
-  uniform float uLightIntensity;
-  varying vec3 vNormalW;
-  varying vec3 vViewDir;
-  void main() {
-    vec3 n = normalize(vNormalW);
-    float lambert = clamp(dot(n, normalize(uLightDir)), 0.0, 1.0);
-    float fill = clamp(dot(n, -normalize(uLightDir)), 0.0, 1.0);
-    vec3 lit = uBase * (0.62 + 0.34 * lambert * uLightIntensity + 0.12 * fill) * 1.35;
-    float rim = pow(1.0 - abs(dot(n, normalize(vViewDir))), 2.4);
-    lit += uTint * rim * 0.38;
-    gl_FragColor = vec4(lit, 1.0);
-  }
-`;
-
-/* ------------------------------------------------------------------ */
-/* GLB layout                                                           */
-/* ------------------------------------------------------------------ */
-
-/** Node names as the glTF exporter wrote them. Names are the contract. */
-const GLB = {
-  body: "Body",
-  heart: ["Heart"],
-  liver: ["Liver"],
-  lungs: ["Lung_L", "Lung_R"],
-  kidneys: ["Kidney_L", "Kidney_R"],
-  /** The brain is 38 named gyri and 27 deep nuclei, plus the cerebellum and
-   *  the brainstem. They are matched by prefix because the exact set is the
-   *  anatomy's, not the web's: a click on the model has to be able to say
-   *  which gyrus it landed on. */
-  brainPrefixes: ["Cortex_", "Deep_"],
-  brainExtras: ["Cerebellum", "BrainStem"],
-  airway: ["Trachea", "Bronchus_L", "Bronchus_R"],
-  /** Every mesh that is neither an organ nor the shell: the great vessels,
-   *  the heart's coronaries and the great cardiac veins. They all carry the
-   *  blood shape, so they are found by what they are rather than by name. */
-  vessels: [
-    "Aorta_Ascending",
-    "Aorta_Arch",
-    "Aorta_Descending",
-    "Brachiocephalic",
-    "Carotid_R",
-    "Carotid_L",
-    "Subclavian_R",
-    "Subclavian_L",
-    "PulmonaryArtery",
-    "PulmonaryVein",
-    "VenaCava_Sup",
-    "VenaCava_Inf",
-    "RenalArtery_R",
-    "RenalArtery_L",
-    "RenalVein_R",
-    "RenalVein_L",
-    "CommonIliac_Art_R",
-    "CommonIliac_Art_L",
-    "CommonIliac_Vein_R",
-    "CommonIliac_Vein_L",
-    "BrachioVein_R",
-    "BrachioVein_L",
-    "JugularVein_R",
-    "JugularVein_L",
-    "Coronary_L_stem",
-    "Coronary_R_trunk",
-    "Coronary_Circumflex",
-    "Coronary_PostIV",
-    "Coronary_AntIV",
-    "Coronary_Marginal",
-    "Cardiac_GreatVein",
-    "Cardiac_MiddleVein",
-  ],
-} as const;
-
-/** True for a node that is part of the brain. */
-function isBrainMesh(name: string): boolean {
-  if (GLB.brainExtras.includes(name as (typeof GLB.brainExtras)[number])) return true;
-  return GLB.brainPrefixes.some((prefix) => name.startsWith(prefix));
-}
-
-/** Which dial organ each mesh follows. Vessels carry the blood shape. */
-const FOLLOW: Record<string, OrganId> = {
-  Heart: "heart",
-  Liver: "liver",
-  Lung_L: "lungs",
-  Lung_R: "lungs",
-  Kidney_L: "kidneys",
-  Kidney_R: "kidneys",
-  // The gut itself is absent from the model; the vessels are the only
-  // structure that visibly "fills" as the level rises.
-  ...Object.fromEntries(GLB.vessels.map((name) => [name, "heart" as OrganId])),
-};
-
-/** Base colour per node group, raw sRGB. */
-const BASE: Record<string, number> = {
-  heart: COLORS.heart,
-  liver: COLORS.liver,
-  lung: COLORS.lung,
-  kidney: COLORS.kidney,
-  artery: COLORS.artery,
-  vein: COLORS.vein,
-  brain: COLORS.brain,
-  airway: COLORS.airway,
-};
-
-const ARTERY = new Set([
-  "Aorta_Ascending",
-  "Aorta_Arch",
-  "Aorta_Descending",
-  "Brachiocephalic",
-  "Carotid_L",
-  "Carotid_R",
-  "Subclavian_L",
-  "Subclavian_R",
-  "PulmonaryVein",
-  "RenalArtery_L",
-  "RenalArtery_R",
-  "CommonIliac_Art_L",
-  "CommonIliac_Art_R",
-  "Coronary_L_stem",
-  "Coronary_R_trunk",
-  "Coronary_Circumflex",
-  "Coronary_PostIV",
-  "Coronary_AntIV",
-  "Coronary_Marginal",
-]);
-const VEIN = new Set([
-  "VenaCava_Inf",
-  "VenaCava_Sup",
-  "PulmonaryArtery",
-  "RenalVein_L",
-  "RenalVein_R",
-  "CommonIliac_Vein_L",
-  "CommonIliac_Vein_R",
-  "BrachioVein_L",
-  "BrachioVein_R",
-  "JugularVein_L",
-  "JugularVein_R",
-  "Cardiac_GreatVein",
-  "Cardiac_MiddleVein",
-]);
-
-function baseFor(name: string): number {
-  if (name === "Heart") return BASE.heart;
-  if (name === "Liver") return BASE.liver;
-  if (name === "Kidney_L" || name === "Kidney_R") return BASE.kidney;
-  if (name === "Lung_L" || name === "Lung_R") return BASE.lung;
-  if (ARTERY.has(name)) return BASE.artery;
-  if (VEIN.has(name)) return BASE.vein;
-  if (isBrainMesh(name)) return BASE.brain;
-  if (GLB.airway.includes(name as (typeof GLB.airway)[number])) return BASE.airway;
-  return 0xd7dee8;
-}
 
 /* ------------------------------------------------------------------ */
 /* Particles                                                            */
@@ -518,9 +291,10 @@ export function createFigureScene(
 
   const disposables: Array<{ dispose(): void }> = [];
   /** Meshes that tint with the dial, by the dial's organ id. */
-  const tinted: Array<{ mesh: THREE.Mesh; id: OrganId; material: THREE.ShaderMaterial }> = [];
+  let tinted: Array<{ mesh: THREE.Mesh; id: OrganId; material: THREE.ShaderMaterial }> = [];
   /** World-space centre of each organ mesh, for the HUD reticle. */
-  const anchors = new Map<OrganId, THREE.Vector3>();
+  /** Where each organ sits, so the reticle can point at it. */
+  let anchors = new Map<string, { centre: THREE.Vector3; radius: number }>();
   let geometryTriangles = 0;
   let modelReady = false;
 
@@ -550,6 +324,10 @@ export function createFigureScene(
         uBase: { value: srgb(baseFor(name)) },
         uTint: { value: srgb(COLORS.tint) },
         uLevel: { value: 0 },
+        uFocus: { value: 0 },
+        // The landing figure fills the organ with the accent as the level
+        // rises: the body is seen whole, so the accent is the signal.
+        uTintMix: { value: 1 },
         uLightDir: { value: directional.position.clone().normalize() },
         uLightIntensity: { value: directional.intensity },
       },
@@ -565,6 +343,7 @@ export function createFigureScene(
       uniforms: {
         uBase: { value: srgb(COLORS.brain) },
         uTint: { value: srgb(COLORS.tint) },
+        uFocus: { value: 0 },
         uLightDir: { value: directional.position.clone().normalize() },
         uLightIntensity: { value: directional.intensity },
       },
@@ -576,7 +355,7 @@ export function createFigureScene(
   const brainMaterial = makeBrainMaterial();
 
   /** Names follow the .blend; find every node as a Mesh. */
-  const meshByName = new Map<string, THREE.Mesh>();
+  let meshByName = new Map<string, THREE.Mesh>();
   const collectMeshes = (node: THREE.Object3D) => {
     if ((node as THREE.Mesh).isMesh) {
       const mesh = node as THREE.Mesh;
@@ -634,102 +413,6 @@ export function createFigureScene(
     options.onBrainRegion?.(null);
   }
 
-  const finishModel = (group: THREE.Group) => {
-    collectMeshes(group);
-
-    // Bodies become Fresnel shells; organs get the lit-tint shader; the brain
-    // gets the rim shader; airway and vessels keep a flat lit look.
-    const bodyMesh = meshByName.get(GLB.body);
-    if (bodyMesh) {
-      bodyMesh.material = bodyMaterial;
-      bodyMesh.renderOrder = 3;
-      bodyMesh.castShadow = false;
-      bodyMesh.receiveShadow = false;
-    }
-
-    for (const [name, id] of Object.entries(FOLLOW) as Array<[string, OrganId]>) {
-      const mesh = meshByName.get(name);
-      if (!mesh) {
-        console.warn(`figure: node "${name}" missing from the GLB — no tint for it`);
-        continue;
-      }
-      const material = makeOrganMaterial(name);
-      mesh.material = material;
-      mesh.renderOrder = 2;
-      tinted.push({ mesh, id, material });
-    }
-
-    for (const [name, mesh] of meshByName) {
-      if (isBrainMesh(name)) {
-        mesh.material = brainMaterial;
-        mesh.renderOrder = 2;
-      }
-    }
-
-    // The pickable brain: the named gyri and nuclei. The cerebellum and the
-    // brainstem are in the brain visually but are not lobes, so they are not
-    // pick targets.
-    brainTargets = [];
-    for (const [name, mesh] of meshByName) {
-      if (name.startsWith("Cortex_") || name.startsWith("Deep_")) brainTargets.push(mesh);
-    }
-
-    for (const name of GLB.airway) {
-      const mesh = meshByName.get(name);
-      if (mesh) {
-        // The airway is not drug-bearing here: lit shell, always level 0.
-        const material = makeOrganMaterial(name);
-        material.uniforms.uLevel.value = 0;
-        mesh.material = material;
-        mesh.renderOrder = 2;
-      }
-    }
-
-    // Normalise: centre the model and scale it to FIGURE_HEIGHT.
-    const bounds = new THREE.Box3();
-    group.traverse((node) => {
-      const mesh = node as THREE.Mesh;
-      if (mesh.isMesh) {
-        mesh.geometry.computeBoundingBox();
-        if (mesh.geometry.boundingBox) {
-          const geometryBounds = mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
-          bounds.union(geometryBounds);
-        }
-      }
-    });
-    const height = bounds.max.y - bounds.min.y || 1;
-    const scale = FIGURE_HEIGHT / height;
-    const centreY = (bounds.max.y + bounds.min.y) / 2;
-    pivot.scale.setScalar(scale);
-    pivot.position.y = -centreY * scale;
-
-    group.traverse((node) => {
-      const mesh = node as THREE.Mesh;
-      if (mesh.isMesh) {
-        mesh.geometry.computeBoundingBox();
-        geometryTriangles += mesh.geometry.index
-          ? mesh.geometry.index.count / 3
-          : mesh.geometry.attributes.position.count / 3;
-      }
-    });
-
-    pivot.add(group);
-    modelReady = true;
-
-    // Where each organ sits, in world space, so the reticle can point at it.
-    // The centre of the mesh's own bounding box is close enough for a marker.
-    for (const { mesh, id } of tinted) {
-      mesh.geometry.computeBoundingBox();
-      const box = mesh.geometry.boundingBox;
-      if (!box) continue;
-      const centre = box.getCenter(new THREE.Vector3()).applyMatrix4(mesh.matrixWorld);
-      if (!anchors.has(id)) anchors.set(id, centre);
-    }
-
-    applyLevels();
-  };
-
-  const loader = new GLTFLoader();
   let status: FigureStatus = "loading";
   /** Hidden while the model is missing: they would be meaningless alone. */
   let particleCloud: THREE.Points | null = null;
@@ -742,22 +425,38 @@ export function createFigureScene(
 
   const loadModel = () => {
     setStatus("loading");
-    loader.load(
+    // The loader reports its own failure, so the only thing left here is the
+    // visible consequence: the figure stays out, but the dial still works.
+    void loadAnatomyModel(
       "/models/human_anatomy.glb",
-      (gltf) => {
-        finishModel(gltf.scene);
-        setStatus("ready");
+      {
+        body: bodyMaterial,
+        brain: brainMaterial,
+        organ: makeOrganMaterial,
       },
-      undefined,
       (error) => {
-        // The figure stays out; the dial still works. The error is the loudest
-        // signal we can give without pretending a model loaded.
         console.error("figure: failed to load human_anatomy.glb", error);
         if (particleCloud) particleCloud.visible = false;
         if (glowPool) glowPool.visible = false;
         setStatus("error");
       }
-    );
+    ).then((loaded) => {
+      meshByName = loaded.meshes;
+      tinted = loaded.tinted;
+      brainTargets = loaded.brainTargets;
+      anchors = loaded.anchors;
+      geometryTriangles = loaded.triangles;
+      pivot.add(loaded.group);
+      // The particles are authored in the model's own units, so they need the
+      // loader's normalisation to land in the same body as the anatomy.
+      particles.scale.setScalar(loaded.scale);
+      particles.position.y = loaded.offsetY;
+      modelReady = true;
+      applyLevels();
+      setStatus("ready");
+    }).catch(() => {
+      setStatus("error");
+    });
   };
 
   loadModel();
@@ -1123,10 +822,11 @@ export function createFigureScene(
       return peak;
     },
     getOrganAnchor(id) {
-      const world = anchors.get(id);
-      if (!world) return null;
-      // The organ sits inside the pivot, which carries the yaw and pitch, and
-      // the pivot carries the scale that normalises the figure's height.
+      const anchor = anchors.get(id);
+      if (!anchor) return null;
+      const world = anchor.centre.clone();
+      // The anchor is in the model's normalised space; the pivot carries the
+      // yaw and pitch the visitor turned it by.
       const point = world.clone().applyMatrix4(pivot.matrixWorld).project(camera);
       const width = canvas.clientWidth || 1;
       const height = canvas.clientHeight || 1;
