@@ -19,6 +19,7 @@ import {
   signOut as authSignOut,
 } from './auth';
 import { getProfile, saveProfile } from './profile';
+import { getDrugPk, searchDrugs, type DrugCatalogHit, type DrugPkRow } from './drugs';
 import {
   deleteAllMyData,
   deleteReport,
@@ -80,6 +81,16 @@ export interface DataClient {
     deleteReport(id: string): Promise<{ data: { deleted: true } | null; error: { code: string; message: string } | null }>;
     deleteAllMyData(): Promise<{ data: { reportsDeleted: number; profileDeleted: boolean } | null; error: { code: string; message: string } | null }>;
   };
+
+  /**
+   * Drug catalogue helpers (public read — no session needed).
+   * - searchDrugs(q, limit): catalogue search via the search_drugs RPC
+   * - getDrugPk(drugId): one drug's approved, cited PK row, or null
+   */
+  drugs: {
+    searchDrugs(q: string, limit?: number): Promise<{ data: DrugCatalogHit[] | null; error: { code: string; message: string } | null }>;
+    getDrugPk(drugId: string): Promise<{ data: DrugPkRow | null; error: { code: string; message: string } | null }>;
+  };
 }
 
 export function createDataClient(args: {
@@ -123,6 +134,9 @@ export function createDataClient(args: {
     }
     backend = {
       from: (name: string) => supabase!.from(name),
+      // rpc is a separate arrow closure so it keeps the supabase client
+      // without relying on `this` (backend objects get spread/copied).
+      rpc: (name: string, args?: Record<string, unknown>) => supabase!.rpc(name, args),
       auth: supabase.auth,
     };
   }
@@ -145,6 +159,10 @@ export function createDataClient(args: {
       getReport: (id: string) => withData(() => getReport(id, backend)),
       deleteReport: (id: string) => withData(() => deleteReport(id, backend)),
       deleteAllMyData: () => withData(() => deleteAllMyData(backend)),
+    },
+    drugs: {
+      searchDrugs: (q: string, limit?: number) => withData(() => searchDrugs(q, limit ?? 20, backend)),
+      getDrugPk: (drugId: string) => withData(() => getDrugPk(drugId, backend)),
     },
   };
 }
@@ -174,6 +192,10 @@ function failedClient(error: { code: string; message: string }): DataClient {
       getReport: async () => err,
       deleteReport: async () => err,
       deleteAllMyData: async () => err,
+    },
+    drugs: {
+      searchDrugs: async () => err,
+      getDrugPk: async () => err,
     },
   };
 }

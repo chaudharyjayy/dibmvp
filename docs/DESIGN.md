@@ -149,11 +149,30 @@ reading. Neither one is a way to change the dose.
 
 - The console takes a prescription written like a script — `200 mg every
   8 h for 3 doses`, `500 mg once`, `100 mg at 0, 6, 12`, `250 mg q8h x3`
-  — and loads it into the dose rows with **Load**.
+  — and loads it into the dose rows with **Load**. Each medicine's card
+  has its own loader; the rows stay per-medicine.
 - The parser is a loader, not state the engine reads. The dose rows stay
   the visible, editable source of truth; loading a script only places
   amounts at times and never invents drug properties. A bad script says
   what is missing, in the panel, not in a browser bubble.
+
+### The medicine picker (catalogue treatments)
+
+- Medicines come from the Supabase catalogue, not from free text. The
+  search box queries the openFDA-derived ingredient list through the
+  `search_drugs` RPC; hits show their pharmacokinetic status, and a
+  medicine is addable only when an approved, cited `drug_pk` row exists
+  (`pk sourced`). Anything else is disabled in place, showing *pk
+  partial* or *pk not sourced* — the panel never runs a drug on invented
+  numbers.
+- One treatment holds at most five medicines. Each runs through the
+  engine on its own cited parameters; the combined panel is an additive
+  exposure model, labelled as such in the header and the saved summary.
+  The doses, the window and the saved report keep the per-medicine
+  structure.
+- The label range under each medicine's name comes from the approved
+  row's dose range, so the amount the visitor types can be compared with
+  what the cited source studied.
 
 ### The literature strip
 
@@ -162,6 +181,10 @@ reading. Neither one is a way to change the dose.
   through the app's own cached route. The queries are fixed, field-tagged
   and reproducible in `lib/pubmed.ts`; the route serves only those
   topics.
+- The strip follows the treatment: below the organ's papers it shows one
+  section per medicine (at most three), the drug's PubMed query built
+  from the catalogue name resolved server-side. The request never
+  carries search text — only a drug id.
 - The strip loads when it scrolls into view, holds at most three papers,
   and says what it is: *context, not the model's output and not advice*.
   The engine never reads it. If PubMed is unreachable the step reads
