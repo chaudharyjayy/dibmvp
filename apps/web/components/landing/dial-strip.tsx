@@ -86,7 +86,10 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
     const fraction = hours / DIAL_HOURS;
     if (fillRef.current) fillRef.current.style.width = `${(fraction * 100).toFixed(2)}%`;
     if (handleRef.current) {
-      handleRef.current.style.left = `calc(${GUTTER}px + (100% - ${GUTTER * 2}px) * ${fraction})`;
+      // A unitless fraction, so the CSS can place it against the strip's
+      // own width. Writing `left` instead would lay the strip out again on
+      // every frame of the sweep.
+      handleRef.current.style.setProperty("--dial-x", fraction.toFixed(5));
     }
     if (readoutRef.current) readoutRef.current.textContent = `${hours.toFixed(1)} h`;
 
@@ -288,6 +291,7 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
            scroll the page. The browser cancels the pointer stream when it takes
            over a vertical pan, so horizontal drags are unaffected. */
         className="relative h-11 w-full cursor-ew-resize touch-pan-y select-none rounded-b-[12px] border border-line bg-surface/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand md:h-14"
+        style={{ containerType: "inline-size" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -306,8 +310,8 @@ export default function DialStrip({ onTime, onReady, autoplay = true }: DialStri
           ref={handleRef}
           data-dial-handle
           aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-brand bg-ink shadow-[0_0_12px_rgba(34,211,238,0.65)]"
-          style={{ left: `${GUTTER}px` }}
+          className="dial-handle pointer-events-none absolute top-1/2 h-4 w-4 rounded-full border-2 border-brand bg-ink"
+          style={{ left: 0 }}
         />
       </div>
 

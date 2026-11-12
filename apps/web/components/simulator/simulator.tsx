@@ -29,8 +29,10 @@ import {
 import { createDataClient, type DataClient } from "@dib/data-client";
 import type { BrainRegion } from "@/components/anatomy/regions";
 import SimulatorConsole, { type SimulatorInput } from "./console";
-import TimeDial from "./time-dial";
+import TimeDial, { type DialSource } from "./time-dial";
 import BodyFigure from "./body-figure";
+import StepLiterature from "./step-literature";
+import { rise } from "./motion";
 import {
   conditionById,
   levelsFor,
@@ -40,6 +42,7 @@ import {
 } from "./condition";
 import type { FocusOrgan, SimulatorScene } from "./scene";
 import { exampleDrug, EXAMPLE_BANNER } from "@/lib/example-drug";
+import { topicForOrgan } from "@/lib/pubmed";
 
 type SexUi = "female" | "male" | "other";
 const toEngineSex = (s: SexUi): BodyProfile["sex"] =>
@@ -77,11 +80,34 @@ export default function Simulator() {
 
   /** The step of the walkthrough the reader is on. */
   const [activeStep, setActiveStep] = React.useState(0);
+  /** The same value as a ref, so the scroll measurement can read it. */
+  const activeStepRef = React.useRef(0);
+  React.useEffect(() => {
+    activeStepRef.current = activeStep;
+  }, [activeStep]);
 
   /* ---- the model ------------------------------------------------------ */
 
   const [scene, setScene] = React.useState<SimulatorScene | null>(null);
   const [brainRegion, setBrainRegion] = React.useState<BrainRegion | null>(null);
+
+  /** The readout row, so a change can sweep a light across it. */
+  const readoutsRef = React.useRef<HTMLDivElement | null>(null);
+
+  /**
+   * Sweeps a light across the readouts when the visitor moves the dial.
+   *
+   * It never runs on the play loop, which updates sixteen times a second:
+   * that would be a strobe, and the numbers have to stay the engine's own.
+   */
+  const sweepReadouts = React.useCallback(() => {
+    const element = readoutsRef.current;
+    if (!element) return;
+    element.classList.remove("sim-tick");
+    // Force the style to be recalculated so the animation restarts.
+    void element.offsetWidth;
+    element.classList.add("sim-tick");
+  }, []);
 
   /* ---- session -------------------------------------------------------- */
 
@@ -219,12 +245,18 @@ export default function Simulator() {
     // middle of the screen. Measuring on scroll rather than by intersection
     // means the camera changes when the step is centred, not when its edge
     // crosses the screen.
+    //
+    // A challenger has to be clearly nearer before the step changes: without
+    // that dead band the camera flips between two adjacent steps as the
+    // boundary passes, and the accent flickers with it.
+    const DEAD_BAND = window.innerHeight * 0.12;
     let raf = 0;
     const measure = () => {
       raf = 0;
       const middle = window.innerHeight / 2;
       let best = 0;
       let bestDistance = Infinity;
+      let currentDistance = Infinity;
       stepRefs.current.forEach((element, index) => {
         if (!element) return;
         const box = element.getBoundingClientRect();
@@ -233,8 +265,14 @@ export default function Simulator() {
           bestDistance = distance;
           best = index;
         }
+        if (index === activeStepRef.current) currentDistance = distance;
       });
-      setActiveStep(best);
+      // The current step keeps the focus until a challenger is clearly
+      // nearer. Without the dead band the camera flips between two adjacent
+      // steps as the boundary passes, and the accent flickers with it.
+      if (best !== activeStepRef.current && currentDistance - bestDistance > DEAD_BAND) {
+        setActiveStep(best);
+      }
     };
     const onScroll = () => {
       if (raf) return;
@@ -272,6 +310,15 @@ export default function Simulator() {
     setHours((h) => Math.min(h, active.tEndH));
   }, [active.tEndH]);
 
+  /** The dial moved. A visitor's move is swept; the play loop is not. */
+  const handleHours = React.useCallback(
+    (next: number, source: DialSource) => {
+      setHours(next);
+      if (source === "user") sweepReadouts();
+    },
+    [sweepReadouts]
+  );
+
   // Play: the dial advances on its own and loops.
   React.useEffect(() => {
     if (!playing) return;
@@ -293,7 +340,8 @@ export default function Simulator() {
     setPlaying(false);
     setAction(null);
     // The walkthrough starts again at the first organ.
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
   }, [draft]);
 
   const saveReport = React.useCallback(async () => {
@@ -363,24 +411,24 @@ export default function Simulator() {
   /* ---- render ---------------------------------------------------------- */
 
   const readouts = [
-    { label: "Concentration", value: `${moment.concMgPerL.toFixed(3)}`, unit: "mg/L" },
-    { label: "In the gut", value: `${moment.gutMg.toFixed(1)}`, unit: "mg" },
-    { label: "In the blood", value: `${moment.bodyMg.toFixed(1)}`, unit: "mg" },
-    { label: "Clearing", value: `${moment.eliminationMgPerH.toFixed(2)}`, unit: "mg/h" },
+    { label: "Concentration", value: moment.concMgPerL, digits: 3, unit: "mg/L" },
+    { label: "In the gut", value: moment.gutMg, digits: 1, unit: "mg" },
+    { label: "In the blood", value: moment.bodyMg, digits: 1, unit: "mg" },
+    { label: "Clearing", value: moment.eliminationMgPerH, digits: 2, unit: "mg/h" },
   ];
 
   return (
-    <div className="relative min-h-screen bg-page text-ink">
+    <div className="relative z-[2] min-h-screen text-ink">
       {/* The HUD backdrop, the same one the landing page sits on. */}
       <div className="hud-backdrop" aria-hidden="true" />
-      <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+      <div className="hud-panel" aria-hidden="true">
         <div className="hud-grid" />
         <div className="hud-scanlines" />
         <div className="hud-vignette" />
       </div>
 
       {/* The bar */}
-      <header className="sticky top-0 z-40 border-b border-line bg-page/85 backdrop-blur-md">
+      <header className="sticky top-0 z-40 border-b border-line bg-page/95 backdrop-blur-md">
         <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4 px-4 py-3">
           <div className="flex items-center gap-4">
             <Link
@@ -391,7 +439,7 @@ export default function Simulator() {
               Back
             </Link>
             <span aria-hidden="true" className="h-4 w-px bg-line-strong" />
-            <h1 className="font-mono text-[12px] uppercase tracking-[0.22em] text-ink">
+            <h1 className="font-heading text-[15px] font-semibold uppercase tracking-[0.2em] text-ink">
               Simulator
             </h1>
             <span className="hidden font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3 sm:inline">
@@ -407,13 +455,14 @@ export default function Simulator() {
         </div>
       </header>
 
-      <div className="relative mx-auto grid max-w-[1800px] grid-cols-1 gap-5 px-4 pb-24 pt-5 lg:grid-cols-[330px_minmax(0,1fr)_400px] lg:gap-6">
+      <div className="relative mx-auto grid max-w-[1800px] grid-cols-1 gap-5 px-4 pb-24 pt-5 xl:grid-cols-[330px_minmax(0,1fr)_400px] xl:gap-6">
         {/* ---- the model, in the middle ---- */}
         <section
           aria-label="The anatomy"
-          className="order-1 flex flex-col gap-3 lg:order-2 lg:sticky lg:top-[84px] lg:h-[calc(100svh-140px)]"
+          className="sim-rise order-1 flex flex-col gap-3 xl:order-2 xl:sticky xl:top-[84px] xl:h-[calc(100svh-140px)]"
+          style={rise(80)}
         >
-          <div className="hud-corners relative min-h-[46svh] flex-1 overflow-hidden rounded-[12px] border border-line bg-page/40 lg:min-h-0">
+          <div className="hud-corners relative min-h-[40svh] flex-1 overflow-hidden rounded-[12px] border border-line bg-page/40 xl:min-h-0">
             <BodyFigure
               scene={scene}
               focus={focusOrgan}
@@ -426,26 +475,43 @@ export default function Simulator() {
           </div>
 
           {/* The readouts: the engine's numbers at the dial's hour. */}
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[10px] border border-line bg-line sm:grid-cols-4">
-            {readouts.map((item) => (
-              <div key={item.label} className="bg-surface/80 px-3 py-2">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-                  {item.label}
-                </p>
-                <p className="mt-0.5 font-mono text-[15px] leading-6 tabular-nums text-brand-text">
-                  {item.value}
-                  <span className="ml-1 text-[11px] text-ink-3">{item.unit}</span>
-                </p>
-              </div>
-            ))}
+          <div
+            ref={readoutsRef}
+            className="sim-rise overflow-hidden rounded-[10px] border border-line bg-line"
+            style={rise(260)}
+          >
+            <div className="flex items-center justify-between bg-surface/80 px-3 py-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-3">
+                Model values
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+                Engine output
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-px min-[1280px]:grid-cols-4">
+              {readouts.map((item) => (
+                <div key={item.label} className="group relative bg-surface/80 px-3 py-2">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3 transition-colors duration-200 group-hover:text-brand-text">
+                    {item.label}
+                  </p>
+                  <p className="mt-0.5 font-mono text-[15px] leading-6 tabular-nums text-brand-text">
+                    {item.value.toFixed(item.digits)}
+                    <span className="ml-1 text-[11px] text-ink-3">{item.unit}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* The dial: it moves the moment everything else is drawn from. */}
-          <div className="rounded-[10px] border border-line bg-surface/60 px-3 py-3">
+          <div
+            className="sim-rise rounded-[10px] border border-line bg-surface/60 px-3 py-3 transition-colors duration-300 hover:border-line-strong"
+            style={rise(320)}
+          >
             <TimeDial
               maxH={active.tEndH}
               hours={hours}
-              onHours={setHours}
+              onHours={handleHours}
               playing={playing}
               onTogglePlay={() => setPlaying((p) => !p)}
               tmaxH={result?.tmaxH ?? null}
@@ -465,10 +531,11 @@ export default function Simulator() {
         {/* ---- the inputs ---- */}
         <aside
           aria-label="Simulation inputs"
-          className="order-2 lg:order-1 lg:sticky lg:top-[84px] lg:h-[calc(100svh-140px)] lg:overflow-y-auto lg:pr-1"
+          className="sim-rise order-2 xl:order-1 xl:sticky xl:top-[84px] xl:h-[calc(100svh-140px)] xl:overflow-y-auto xl:pr-1"
+          style={rise(0)}
         >
           <div className="rounded-[12px] border border-line bg-surface/70 p-4">
-            <h2 className="mb-4 font-mono text-[11px] uppercase tracking-[0.2em] text-ink-2">
+            <h2 className="mb-4 font-heading text-[13px] font-semibold uppercase tracking-[0.2em] text-ink-2">
               Inputs
             </h2>
             <SimulatorConsole
@@ -518,7 +585,7 @@ export default function Simulator() {
         </aside>
 
         {/* ---- the walkthrough ---- */}
-        <div className="order-3 lg:order-3">
+        <div className="order-3 xl:order-3">
           <h2 className="sr-only">The walkthrough</h2>
           {steps.map((step, index) => {
             const narration = narrate(step.organ, moment, condition);
@@ -531,19 +598,19 @@ export default function Simulator() {
                 }}
                 data-step={index}
                 aria-current={isActive ? "step" : undefined}
-                className={`flex min-h-[58vh] flex-col justify-center border-l-2 py-10 pl-6 transition-colors duration-300 ${
+                className={`flex min-h-[58vh] flex-col justify-center border-l-2 py-10 pl-6 transition-[border-color] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
                   isActive ? "border-brand-text" : "border-line"
                 }`}
               >
                 <div className="flex items-baseline gap-3">
                   <span
-                    className={`font-mono text-[11px] tabular-nums tracking-[0.2em] ${
+                    className={`font-mono text-[11px] tabular-nums tracking-[0.2em] transition-colors duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
                       isActive ? "text-brand-text" : "text-ink-3"
                     }`}
                   >
                     {String(index + 1).padStart(2, "0")}/{String(steps.length).padStart(2, "0")}
                   </span>
-                  <h3 className="text-[19px] font-semibold leading-7 tracking-tight text-ink">
+                  <h3 className="font-heading text-[19px] font-semibold leading-7 tracking-tight text-ink">
                     {narration.title}
                   </h3>
                 </div>
@@ -556,7 +623,9 @@ export default function Simulator() {
                   {narration.figures.map((figure) => (
                     <div
                       key={figure.label}
-                      className="rounded-[8px] border border-line bg-surface/70 px-3 py-2"
+                      className={`rounded-[8px] border bg-surface/70 px-3 py-2 transition-[border-color,transform] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none motion-reduce:transform-none ${
+                        isActive ? "border-brand/35" : "border-line"
+                      }`}
                     >
                       <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
                         {figure.label}
@@ -567,6 +636,9 @@ export default function Simulator() {
                     </div>
                   ))}
                 </dl>
+
+                {/* Published papers about the process this step narrates. */}
+                <StepLiterature topic={topicForOrgan(step.organ)} />
               </article>
             );
           })}
@@ -574,7 +646,7 @@ export default function Simulator() {
           {/* The engine's own summary, where the curve chart used to be. */}
           {report ? (
             <article className="flex min-h-[46vh] flex-col justify-center border-l-2 border-line py-10 pl-6">
-              <h3 className="text-[19px] font-semibold leading-7 tracking-tight text-ink">
+              <h3 className="font-heading text-[19px] font-semibold leading-7 tracking-tight text-ink">
                 The engine&rsquo;s own summary
               </h3>
               <ul className="mt-3 space-y-1.5">

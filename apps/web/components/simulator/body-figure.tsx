@@ -67,6 +67,7 @@ export default function BodyFigure({
     if (!canvas) return;
 
     let scene: SimulatorScene | null = null;
+    let observer: IntersectionObserver | null = null;
     let cancelled = false;
 
     const coarse = window.matchMedia("(pointer: coarse)").matches;
@@ -80,10 +81,19 @@ export default function BodyFigure({
         onBrainRegion: (region) => onBrainRegionRef.current?.(region),
       });
       onSceneRef.current?.(scene);
+
+      // The scene sleeps while it is out of sight: a background tab should
+      // not spend the battery drawing a body nobody is looking at.
+      observer = new IntersectionObserver(
+        ([entry]) => scene?.setPaused(!entry.isIntersecting),
+        { threshold: 0 }
+      );
+      observer.observe(canvas);
     });
 
     return () => {
       cancelled = true;
+      observer?.disconnect();
       scene?.dispose();
       onSceneRef.current?.(null);
     };

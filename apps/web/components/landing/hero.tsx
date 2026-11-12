@@ -275,21 +275,14 @@ export default function Hero() {
   }, []);
 
   return (
-    <section className="relative w-full bg-page">
+    <section className="relative w-full">
       <div className="relative mx-auto w-full max-w-[1440px]">
         <div
           ref={textRef}
           data-hero-text
-          className="relative px-5 pb-12 pt-[88px] will-change-transform md:absolute md:left-12 md:top-24 md:z-10 md:w-[592px] md:px-0 md:pb-0 md:pt-0"
+          className="relative z-10 px-5 pb-12 pt-[88px] will-change-transform md:absolute md:left-12 md:top-24 md:w-[min(592px,42vw)] md:px-0 md:pb-0 md:pt-0"
         >
-          <p
-            className={`landing-load text-brand-text ${type.caption}`}
-            style={riseStyle(LOAD.caption.delay, LOAD.caption.duration, LOAD.caption.y)}
-          >
-            Educational simulator
-          </p>
-
-          <h1 className={`mt-6 text-ink ${type.display}`}>
+          <h1 className={`text-ink ${type.display}`}>
             {H1_LINES.map((line, index) => (
               <span
                 key={line}
@@ -304,7 +297,7 @@ export default function Hero() {
           </h1>
 
           <p
-            className={`landing-load mt-6 max-w-[480px] text-ink-2 ${type.body}`}
+            className={`landing-load mt-6 max-w-[480px] text-ink-2 md:max-w-[min(480px,42vw)] ${type.body}`}
             style={riseStyle(LOAD.body.delay, LOAD.body.duration, LOAD.body.y)}
           >
             Set a profile and a dose, then move the time dial to watch an illustrative drug level
@@ -334,14 +327,17 @@ export default function Hero() {
         <div
           ref={wrapperRef}
           data-scroll-wrapper
-          className="relative h-[280svh] w-full bg-page md:h-[400svh]"
+          className="relative h-[280svh] w-full md:h-[400svh]"
         >
-          <div className="sticky top-0 h-[100svh] w-full overflow-hidden bg-page">
+          {/* z-1 puts the stage under the HUD's texture layer (z-5) and under
+              the copy (z-10): the grid draws across the stage, the headline
+              stays clear of it. */}
+          <div className="sticky top-0 z-[1] h-[100svh] w-full overflow-hidden">
             <div ref={stageRef} className="relative h-full w-full">
               <div
                 ref={figureRef}
                 data-hero-figure
-                className="absolute inset-x-0 top-14 will-change-transform md:inset-x-auto md:right-12 md:top-24 md:w-[672px]"
+                className="absolute inset-x-0 top-14 will-change-transform md:inset-x-auto md:right-12 md:top-24 md:w-[min(672px,42vw)]"
               >
                 <div
                   data-load="figure"
@@ -352,7 +348,7 @@ export default function Hero() {
                 </div>
               </div>
 
-              <div className="pointer-events-none absolute inset-x-5 bottom-[56px] md:bottom-28 md:left-12 md:right-auto md:w-[592px]">
+              <div className="pointer-events-none absolute inset-x-5 bottom-[56px] md:bottom-28 md:left-12 md:right-auto md:w-[min(592px,42vw)]">
                 <div className="relative h-[150px] md:h-[178px]">
                   {PHASES.map((item, index) => {
                     const active = phase === index + 1 && !atEnd;

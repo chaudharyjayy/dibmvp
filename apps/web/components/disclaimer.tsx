@@ -13,7 +13,7 @@ export default function Disclaimer() {
   return (
     <footer
       role="note"
-      className="fixed inset-x-0 bottom-0 z-40 flex h-12 items-center justify-center border-t border-line bg-surface/92 px-4 text-center font-sans text-[12px] leading-4 text-ink-2 backdrop-blur-sm md:h-10"
+      className="fixed inset-x-0 bottom-0 z-40 flex h-12 items-center justify-center border-t border-line bg-surface/96 px-4 text-center font-sans text-[12px] leading-4 text-ink-2 backdrop-blur-sm md:h-10"
     >
       {DISCLAIMER_TEXT}
     </footer>
