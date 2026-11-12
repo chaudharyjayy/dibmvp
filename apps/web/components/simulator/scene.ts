@@ -325,7 +325,7 @@ export function createSimulatorScene(
 
   options.onStatus?.("loading");
   void loadAnatomyModel(
-    "/models/human_anatomy.glb",
+    `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/models/human_anatomy.glb`,
     { body: bodyMaterial, brain: brainMaterial, organ: makeOrganMaterial },
     (error) => {
       console.error("simulator: failed to load human_anatomy.glb", error);
