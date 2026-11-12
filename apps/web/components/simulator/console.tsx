@@ -40,7 +40,7 @@ type ConsoleProps = {
 
 const fieldLabel = "block font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3 mb-1.5";
 const inputClass =
-  "w-full rounded-lg border border-line bg-surface/80 px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/30";
+  "w-full rounded-lg border border-line bg-surface/80 px-3 py-2 text-sm text-ink outline-none transition-[border-color,background-color] duration-150 placeholder:text-ink-3 hover:border-line-strong focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/30 motion-reduce:transition-none";
 
 export default function SimulatorConsole({
   value,
@@ -235,7 +235,7 @@ export default function SimulatorConsole({
                 },
               ])
             }
-            className="rounded-lg border border-line-strong px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-2 transition-colors hover:border-brand hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            className="rounded-lg border border-line-strong px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-2 transition-[transform,border-color,color] duration-150 hover:border-brand hover:text-brand-text active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none motion-reduce:transform-none"
           >
             + dose
           </button>
@@ -264,7 +264,7 @@ export default function SimulatorConsole({
                     )
                   )
                 }
-                className="w-24 rounded-lg border border-line bg-surface/80 px-2 py-1.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/30"
+                className="w-24 rounded-lg border border-line bg-surface/80 px-2 py-1.5 text-sm text-ink outline-none transition-[border-color] duration-150 hover:border-line-strong focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/30 motion-reduce:transition-none"
                 aria-invalid={!Number.isFinite(row.doseMg) || row.doseMg <= 0 || row.doseMg > 10_000}
               />
               <span className="shrink-0 font-mono text-[11px] text-ink-3">mg</span>
@@ -286,7 +286,7 @@ export default function SimulatorConsole({
                     )
                   )
                 }
-                className="w-24 rounded-lg border border-line bg-surface/80 px-2 py-1.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/30"
+                className="w-24 rounded-lg border border-line bg-surface/80 px-2 py-1.5 text-sm text-ink outline-none transition-[border-color] duration-150 hover:border-line-strong focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/30 motion-reduce:transition-none"
                 aria-invalid={
                   !Number.isFinite(row.timeH) || row.timeH < 0 || row.timeH > value.tEndH
                 }
@@ -301,7 +301,7 @@ export default function SimulatorConsole({
                       value.doses.filter((_, j) => j !== i)
                     )
                   }
-                  className="shrink-0 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3 transition-colors hover:text-rose-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                  className="relative shrink-0 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3 transition-colors duration-150 after:absolute after:-inset-3.5 after:content-[''] hover:text-rose-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none"
                   aria-label={`Remove dose ${i + 1}`}
                 >
                   ×
@@ -326,7 +326,7 @@ export default function SimulatorConsole({
                 value.doses.map((r) => ({ ...r, timeH: Math.min(r.timeH, next) }))
               );
             }}
-            className="rounded-lg border border-line bg-surface/80 px-2 py-1.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/30"
+            className="rounded-lg border border-line bg-surface/80 px-2 py-1.5 text-sm text-ink outline-none transition-[border-color] duration-150 hover:border-line-strong focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/30 motion-reduce:transition-none"
           >
             <option value={12}>12 h</option>
             <option value={24}>24 h</option>
@@ -345,7 +345,7 @@ export default function SimulatorConsole({
       <button
         type="submit"
         disabled={disabled || localError !== null}
-        className="w-full rounded-xl bg-brand px-5 py-3 text-sm font-semibold text-[#04121a] transition-colors hover:bg-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-50"
+        className="w-full rounded-xl bg-brand px-5 py-3 text-sm font-semibold text-[#04121a] transition-[transform,background-color] duration-150 hover:-translate-y-px hover:bg-brand-text active:translate-y-0 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-50 motion-reduce:transition-none motion-reduce:transform-none"
       >
         Run the simulation
       </button>

@@ -21,11 +21,12 @@ import WhatThisIs from "./what-this-is";
 
 export default function Landing() {
   return (
-    <div className="relative w-full bg-page text-ink">
+    <div className="relative z-[2] w-full text-ink">
       {/* The instrument panel the page sits on: base gradient, two colour
           glows, an engineering grid, scanlines and an edge vignette.
           Generated in code — the page ships no images. */}
-      <div className="hud-backdrop" aria-hidden="true">
+      <div className="hud-backdrop" aria-hidden="true" />
+      <div className="hud-panel" aria-hidden="true">
         <div className="hud-grid" />
         <div className="hud-scanlines" />
         <div className="hud-vignette" />

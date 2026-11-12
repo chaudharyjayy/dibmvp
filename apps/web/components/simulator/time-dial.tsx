@@ -10,21 +10,32 @@
  *
  * The strip is a real slider: it takes focus, it answers the arrow keys, and
  * it reads out the hour.
+ *
+ * The handle is placed with a transform rather than `left`. `left` is a
+ * layout property, so moving it every frame forces the browser to lay the
+ * strip out again; a transform is composited. It also means the handle can
+ * be transitioned, which `left` cannot be without the same cost.
  */
 
 import { useCallback, useEffect, useRef } from "react";
+
+export type DialSource = "user" | "auto";
 
 export type TimeDialProps = {
   /** The simulated window, in hours. */
   maxH: number;
   /** The current hour. */
   hours: number;
-  /** Moves the dial. */
-  onHours: (hours: number) => void;
+  /**
+   * Moves the dial. The source says whether the visitor moved it or the
+   * play loop did, so the readouts can react to the visitor and stay still
+   * under the loop — sixteen updates a second is a strobe.
+   */
+  onHours: (hours: number, source: DialSource) => void;
   /** When the visitor presses play, the dial advances on its own. */
   playing?: boolean;
   onTogglePlay?: () => void;
-  /** The time of the peak, marked on the strip. */
+  /** The time of the peak, marked on the track. */
   tmaxH?: number | null;
 };
 
@@ -47,13 +58,19 @@ export default function TimeDial({
   const fillRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLSpanElement | null>(null);
   const readoutRef = useRef<HTMLSpanElement | null>(null);
+  /** True while the pointer is down: the handle tracks it exactly. */
+  const draggingRef = useRef(false);
 
   const paint = useCallback(
     (next: number) => {
       const fraction = maxH > 0 ? next / maxH : 0;
       if (fillRef.current) fillRef.current.style.width = `${(fraction * 100).toFixed(2)}%`;
       if (handleRef.current) {
-        handleRef.current.style.left = `calc(${GUTTER}px + (100% - ${GUTTER * 2}px) * ${fraction})`;
+        // A unitless fraction, so the CSS can place it. The strip is a
+        // container, so the handle's position is a share of the strip's
+        // width rather than a pixel value JavaScript has to keep in step
+        // with the layout.
+        handleRef.current.style.setProperty("--dial-x", fraction.toFixed(5));
       }
       if (readoutRef.current) readoutRef.current.textContent = `${next.toFixed(1)} h`;
       const strip = stripRef.current;
@@ -85,7 +102,9 @@ export default function TimeDial({
     (event: React.PointerEvent<HTMLDivElement>) => {
       event.currentTarget.setPointerCapture(event.pointerId);
       event.currentTarget.focus();
-      onHours(hoursFromPointer(event.clientX));
+      draggingRef.current = true;
+      event.currentTarget.dataset.dragging = "true";
+      onHours(hoursFromPointer(event.clientX), "user");
     },
     [hoursFromPointer, onHours]
   );
@@ -93,12 +112,14 @@ export default function TimeDial({
   const onPointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-      onHours(hoursFromPointer(event.clientX));
+      onHours(hoursFromPointer(event.clientX), "user");
     },
     [hoursFromPointer, onHours]
   );
 
-  const onPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+  const endDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    draggingRef.current = false;
+    delete event.currentTarget.dataset.dragging;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -116,7 +137,7 @@ export default function TimeDial({
       else if (event.key === "End") next = maxH;
       if (next === null) return;
       event.preventDefault();
-      onHours(clamp(next, maxH));
+      onHours(clamp(next, maxH), "user");
     },
     [hours, maxH, onHours]
   );
@@ -132,12 +153,30 @@ export default function TimeDial({
             type="button"
             onClick={onTogglePlay}
             aria-pressed={playing}
-            className="rounded border border-line px-2 py-0.5 text-ink-2 transition-colors hover:border-brand hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            className="group relative rounded border border-line px-2 py-0.5 text-ink-2 transition-colors duration-150 hover:border-brand hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand active:scale-95 motion-reduce:transition-none motion-reduce:transform-none"
           >
-            {playing ? "❚❚ pause" : "▶ play"}
+            {/* Both glyphs are always in the DOM and cross-fade, rather than
+                one being swapped for the other. aria-pressed carries the
+                state, not the picture. */}
+            <span
+              aria-hidden="true"
+              className={`transition-opacity duration-150 motion-reduce:transition-none ${
+                playing ? "opacity-0" : "opacity-100"
+              }`}
+            >
+              ▶ play
+            </span>
+            <span
+              aria-hidden="true"
+              className={`absolute inset-0 transition-opacity duration-150 motion-reduce:transition-none ${
+                playing ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              ❚❚ pause
+            </span>
           </button>
         ) : null}
-        <span ref={readoutRef} className="text-brand-text">
+        <span ref={readoutRef} className="tabular-nums text-brand-text">
           {hours.toFixed(1)} h
         </span>
         <span>{maxH} h</span>
@@ -156,13 +195,15 @@ export default function TimeDial({
         aria-valuetext="0.0 hours"
         data-dial-value="0.00"
         className="relative mt-2 h-11 w-full cursor-ew-resize touch-pan-y select-none rounded-xl border border-line bg-surface/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        style={{ containerType: "inline-size" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
         onKeyDown={onKeyDown}
       >
-        {/* The peak of the curve, marked on the track. */}
+        {/* The peak of the curve, marked on the track. The hour is also given
+            in text: a marker alone says nothing to a screen reader. */}
         {peakPercent != null ? (
           <span
             aria-hidden="true"
@@ -180,10 +221,14 @@ export default function TimeDial({
         <span
           ref={handleRef}
           aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-brand bg-ink shadow-[0_0_12px_rgba(34,211,238,0.65)]"
+          className="sim-handle pointer-events-none absolute top-1/2 h-4 w-4 rounded-full border-2 border-brand bg-ink"
           style={{ left: `${GUTTER}px` }}
         />
       </div>
+
+      {peakPercent != null && tmaxH != null ? (
+        <p className="sr-only">The peak of the curve is at {tmaxH.toFixed(2)} hours.</p>
+      ) : null}
     </div>
   );
 }

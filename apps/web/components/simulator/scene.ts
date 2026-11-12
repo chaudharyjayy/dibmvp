@@ -41,6 +41,8 @@ export type SimulatorScene = {
   setLevels(levels: Record<string, number>): void;
   /** Lights the organ the walkthrough is about. */
   setFocus(organ: FocusOrgan | null): void;
+  /** Stops the render loop while the canvas is out of sight. */
+  setPaused(paused: boolean): void;
   /** Moves the camera to an organ, or back to the whole body for null. */
   focusOrgan(organ: FocusOrgan | null, immediate?: boolean): void;
   /** Where the focused organ is on the canvas, in CSS pixels. */
@@ -255,6 +257,11 @@ export function createSimulatorScene(
   let lastFrame = performance.now();
   let raf = 0;
   let disposed = false;
+  /** Set when the canvas is off screen or the tab is hidden. */
+  let paused = false;
+  /** The focus the camera is easing towards, and where it is now. */
+  let focusValue = 0;
+  let wantedFocusValue = 0;
 
   function frame(now: number): void {
     if (disposed) return;
@@ -262,17 +269,37 @@ export function createSimulatorScene(
     const dt = Math.min((now - lastFrame) / 1000, 0.05);
     lastFrame = now;
 
+    if (paused) return;
+
     if (reducedMotion) {
       target.copy(wantedTarget);
       distance = wantedDistance;
+      focusValue = wantedFocusValue;
     } else {
       // Ease towards the wanted framing, so scrolling to the next organ
       // reads as a move rather than a cut.
       target.lerp(wantedTarget, 1 - Math.pow(0.001, dt));
       distance += (wantedDistance - distance) * (1 - Math.pow(0.002, dt));
+      // The organ lights as the camera arrives, rather than the instant the
+      // step changes.
+      focusValue += (wantedFocusValue - focusValue) * (1 - Math.pow(0.001, dt));
     }
 
-    drift += dt * 0.08;
+    if (!reducedMotion) {
+      drift += dt * 0.08;
+      // The scan band travels down the body shell, the same sweep the
+      // landing figure has. Under reduced motion it parks.
+      const phase = (now % 5200) / 5200;
+      bodyMaterial.uniforms.uScan.value = 1.65 - phase * 3.3;
+    }
+
+    // The focus value drives the shader, so the organ brightens with the
+    // camera rather than snapping ahead of it.
+    for (const { id, material } of tinted) {
+      const wanted = wantedFocus && wantedFocus === id ? 1 : 0;
+      material.uniforms.uFocus.value = wanted === 1 ? focusValue : 0;
+    }
+    brainMaterial.uniforms.uFocus.value = wantedFocus === "brain" ? focusValue : 0;
 
     camera.position.set(
       target.x + Math.sin(drift) * 0.18,
@@ -283,6 +310,13 @@ export function createSimulatorScene(
 
     renderer.render(scene, camera);
   }
+
+  // The scene sleeps when it cannot be seen: off screen, or in a hidden tab.
+  const onVisibility = () => {
+    paused = document.hidden;
+    if (!paused) lastFrame = performance.now();
+  };
+  document.addEventListener("visibilitychange", onVisibility);
 
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas);
@@ -338,11 +372,10 @@ export function createSimulatorScene(
   function applyFocus(organ: FocusOrgan | null): void {
     // The organ the walkthrough is about burns brighter than the ones it is
     // passing. The brain is one material for all 64 of its parts, so it is
-    // lit as a whole.
-    for (const { id, material } of tinted) {
-      material.uniforms.uFocus.value = organ && organ === id ? 1 : 0;
-    }
-    brainMaterial.uniforms.uFocus.value = organ === "brain" ? 1 : 0;
+    // lit as a whole. The value itself is eased in the frame loop, so the
+    // organ lights as the camera arrives.
+    wantedFocusValue = organ ? 1 : 0;
+    if (reducedMotion) focusValue = wantedFocusValue;
   }
 
   function applyFraming(organ: FocusOrgan | null, immediate: boolean): void {
@@ -371,6 +404,11 @@ export function createSimulatorScene(
     setFocus(organ) {
       wantedFocus = organ;
       applyFocus(organ);
+    },
+
+    setPaused(next) {
+      paused = next || document.hidden;
+      if (!paused) lastFrame = performance.now();
     },
 
     focusOrgan(organ, immediate = false) {
@@ -403,6 +441,7 @@ export function createSimulatorScene(
       disposed = true;
       cancelAnimationFrame(raf);
       resizeObserver.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerleave", onPointerLeave);
       scene.traverse((node) => {
