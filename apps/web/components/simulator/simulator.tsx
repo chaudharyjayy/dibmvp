@@ -194,6 +194,13 @@ export default function Simulator() {
     [organs]
   );
 
+  /** The treatment's medicines for the strips — memoised so the strip's
+   * effect does not re-run (and cancel its fetches) on every re-render. */
+  const stripDrugs = React.useMemo(
+    () => active.drugs.map((d) => ({ id: d.drugId, name: d.name })),
+    [active.drugs],
+  );
+
   const { result, simError } = React.useMemo((): {
     result: SimResult | null;
     simError: string | null;
@@ -414,7 +421,7 @@ export default function Simulator() {
 
     const summaryText = [
       active.drugs.length > 1
-        ? "Additive exposure model — each medicine's own curve, summed; no interaction simulated."
+        ? "Additive exposure model — each medicine's own curve, summed; interactions are outside this model."
         : "Parameters sourced from the approved, cited PK row.",
       active.description.trim() ? `Case: ${active.description.trim().slice(0, 400)}` : "",
       ...report.bullets,
@@ -501,7 +508,7 @@ export default function Simulator() {
             </span>
             <span className="hidden sm:inline">
               {active.drugs.length > 0
-                ? "Parameters from the approved, cited PK rows. Additive across medicines — no interaction simulated."
+                ? "Parameters from the approved, cited PK rows. Additive across medicines — interactions are outside this model."
                 : "No medicine added. Search the catalogue to build a treatment."}
             </span>
           </p>
@@ -693,7 +700,7 @@ export default function Simulator() {
                 {/* Published papers about the process this step narrates. */}
                 <StepLiterature
                   topic={topicForOrgan(step.organ)}
-                  drugs={active.drugs.map((d) => ({ id: d.drugId, name: d.name }))}
+                  drugs={stripDrugs}
                 />
               </article>
             );

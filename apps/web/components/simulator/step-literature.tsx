@@ -43,28 +43,24 @@ export default function StepLiterature({ topic, drugs = [] }: StepLiteratureProp
   const [drugSections, setDrugSections] = useState<Record<string, Section>>({});
   /** The strip element, observed so the fetches fire when the reader arrives. */
   const asideRef = useRef<HTMLElement | null>(null);
-  const startedRef = useRef(false);
 
   useEffect(() => {
     const aside = asideRef.current;
     if (!aside) return;
-    /** Runs on unmount: marks in-flight fetches as ignorable. */
-    const cleanupFns: Array<() => void> = [];
+    // Fresh per effect run: a new topic or treatment refetches, and the
+    // cleanup below marks this run's fetches as ignorable.
+    let cancelled = false;
+    let started = false;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        if (startedRef.current) return;
-        startedRef.current = true;
+        if (!entries.some((entry) => entry.isIntersecting) || started) return;
+        started = true;
         observer.disconnect();
 
         const fetchSection = (
           url: string,
           apply: (section: Section) => void,
         ) => {
-          let cancelled = false;
-          cleanupFns.push(() => {
-            cancelled = true;
-          });
           fetch(url)
             .then((response) => response.json())
             .then((data: { articles?: LiteratureArticle[]; error?: string | null }) => {
@@ -99,8 +95,8 @@ export default function StepLiterature({ topic, drugs = [] }: StepLiteratureProp
     );
     observer.observe(aside);
     return () => {
+      cancelled = true;
       observer.disconnect();
-      for (const fn of cleanupFns) fn();
     };
   }, [topic, drugs]);
 

@@ -66,9 +66,10 @@ export async function searchDrugs(
     let res: { data: unknown; error: unknown };
     try {
       // The rpc hook is optional on the backend interface (mocks omit it).
-      const rpc = backend.rpc?.bind(backend);
-      if (!rpc) return { data: null, error: { code: 'backend-no-rpc', message: 'backend has no rpc method' } };
-      res = await rpc('search_drugs', { q, lim: limit });
+      if (typeof backend.rpc !== 'function') {
+        return { data: null, error: { code: 'backend-no-rpc', message: 'backend has no rpc method' } };
+      }
+      res = await backend.rpc('search_drugs', { q, lim: limit });
     } catch (e) {
       return { data: null, error: mapSupabaseError(e) };
     }

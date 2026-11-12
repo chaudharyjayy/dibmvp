@@ -134,6 +134,9 @@ export function createDataClient(args: {
     }
     backend = {
       from: (name: string) => supabase!.from(name),
+      // rpc is a separate arrow closure so it keeps the supabase client
+      // without relying on `this` (backend objects get spread/copied).
+      rpc: (name: string, args?: Record<string, unknown>) => supabase!.rpc(name, args),
       auth: supabase.auth,
     };
   }
