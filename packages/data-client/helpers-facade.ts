@@ -20,6 +20,7 @@ import {
   listReports as _listReports,
   saveReport as _saveReport,
 } from './reports';
+import { getDrugPk as _getDrugPk, searchDrugs as _searchDrugs } from './drugs';
 
 export const signInWithGoogle = (redirectTo: string, backend: DataBackend) => _signInWithGoogle(redirectTo, backend);
 export const signInWithEmailOtp = (email: string, backend: DataBackend) => _signInWithEmailOtp(email, backend);
@@ -35,3 +36,5 @@ export const listReports = (args: ListReportsArgs, backend: DataBackend) => _lis
 export const getReport = (id: string, backend: DataBackend) => _getReport(id, backend);
 export const deleteReport = (id: string, backend: DataBackend) => _deleteReport(id, backend);
 export const deleteAllMyData = (backend: DataBackend) => _deleteAllMyData(backend);
+export const searchDrugs = (q: string, limit: number, backend: DataBackend) => _searchDrugs(q, limit, backend);
+export const getDrugPk = (drugId: string, backend: DataBackend) => _getDrugPk(drugId, backend);

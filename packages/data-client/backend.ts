@@ -5,5 +5,6 @@
  */
 export interface DataBackend {
   from(name: string): any; // supabase-js PostgrestQueryBuilder / our mock
+  rpc?(name: string, args?: Record<string, unknown>): any; // supabase-js rpc / our mock
   auth: any; // supabase-js auth client / our mock
 }

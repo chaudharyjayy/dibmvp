@@ -41,7 +41,8 @@ import {
   organsFor,
 } from "./condition";
 import type { FocusOrgan, SimulatorScene } from "./scene";
-import { exampleDrug, EXAMPLE_BANNER } from "@/lib/example-drug";
+import { drugFromPk, composeTreatment } from "@/lib/treatment";
+import type { DrugPkRow } from "@dib/data-client";
 import { topicForOrgan } from "@/lib/pubmed";
 
 type SexUi = "female" | "male" | "other";
@@ -54,7 +55,7 @@ const DEFAULT_INPUT: SimulatorInput = {
   ageYears: 30,
   weightKg: 70,
   sex: "other",
-  doses: [{ timeH: 0, doseMg: 200 }],
+  drugs: [],
   tEndH: 48,
 };
 
@@ -155,6 +156,31 @@ export default function Simulator() {
 
   /* ---- the engine ----------------------------------------------------- */
 
+  /**
+   * Approved PK rows for the treatment's medicines, fetched once per drug.
+   * A medicine can only enter the console when the catalogue says its PK
+   * exists; this cache is what lets the engine read the actual values.
+   */
+  const [pkRows, setPkRows] = React.useState<Map<string, DrugPkRow>>(new Map());
+  React.useEffect(() => {
+    let cancelled = false;
+    for (const drug of active.drugs) {
+      if (pkRows.has(drug.drugId)) continue;
+      fetch(`/api/drugs?id=${encodeURIComponent(drug.drugId)}`)
+        .then((response) => response.json())
+        .then((data: { pk?: DrugPkRow | null }) => {
+          if (cancelled || !data.pk) return;
+          setPkRows((prev) => new Map(prev).set(drug.drugId, data.pk as DrugPkRow));
+        })
+        .catch(() => {
+          /* the drug stays unrunnable without its row; the console says why */
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [active.drugs, pkRows]);
+
   const condition = conditionById(active.conditionId);
   const organs = React.useMemo(() => organsFor(condition), [condition]);
 
@@ -172,25 +198,44 @@ export default function Simulator() {
     result: SimResult | null;
     simError: string | null;
   } => {
+    if (active.drugs.length === 0) return { result: null, simError: null };
+    // Every medicine needs its approved row before anything runs.
+    if (!active.drugs.every((d) => d.hasPk && pkRows.has(d.drugId))) {
+      return { result: null, simError: null };
+    }
     const profile: BodyProfile = {
       ageYears: active.ageYears,
       weightKg: active.weightKg,
       sex: toEngineSex(active.sex),
     };
-    const doses: DoseEvent[] = active.doses.map((r) => ({
-      drugId: exampleDrug.id,
-      doseMg: r.doseMg,
-      timeH: r.timeH,
-    }));
     try {
-      return {
-        result: simulate({ profile, drug: exampleDrug, doses, tEndH: active.tEndH, dtH: 0.05 }),
-        simError: null,
-      };
+      const results: SimResult[] = [];
+      for (const line of active.drugs) {
+        const pk = pkRows.get(line.drugId);
+        if (!pk) continue;
+        const drug = drugFromPk({ id: line.drugId, name: line.name }, pk);
+        if (!drug) continue;
+        const doses: DoseEvent[] = line.doses.map((r) => ({
+          drugId: line.drugId,
+          doseMg: r.doseMg,
+          timeH: r.timeH,
+        }));
+        results.push(
+          simulate({ profile, drug, doses, tEndH: active.tEndH, dtH: 0.05 })
+        );
+      }
+      return { result: composeTreatment(results), simError: null };
     } catch (e) {
       return { result: null, simError: e instanceof Error ? e.message : "simulation failed" };
     }
-  }, [active]);
+  }, [active, pkRows]);
+
+  /** The treatment's name for the header and the report title. */
+  const treatmentLabel = React.useMemo(() => {
+    if (active.drugs.length === 0) return "No medicine added";
+    if (active.drugs.length === 1) return active.drugs[0].name;
+    return `${active.drugs.length} medicines — additive model`;
+  }, [active.drugs]);
 
   const report = result ? buildReport(result) : null;
 
@@ -349,24 +394,28 @@ export default function Simulator() {
     setSaving(true);
     setAction(null);
 
-    // One entry per (drug, amount), each carrying every time that amount was
-    // given.
-    const byAmount = new Map<number, number[]>();
-    for (const r of active.doses) {
-      const times = byAmount.get(r.doseMg) ?? [];
-      times.push(r.timeH);
-      byAmount.set(r.doseMg, times);
-    }
-    const drugs = [...byAmount.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([doseMg, times]) => ({
-        drugId: exampleDrug.id,
-        doseMg,
-        times: [...new Set(times)].sort((a, b) => a - b),
-      }));
+    // One entry per (medicine, amount), each carrying every time that
+    // amount was given.
+    const drugs = active.drugs.flatMap((line) => {
+      const byAmount = new Map<number, number[]>();
+      for (const r of line.doses) {
+        const times = byAmount.get(r.doseMg) ?? [];
+        times.push(r.timeH);
+        byAmount.set(r.doseMg, times);
+      }
+      return [...byAmount.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([doseMg, times]) => ({
+          drugId: line.drugId,
+          doseMg,
+          times: [...new Set(times)].sort((a, b) => a - b),
+        }));
+    });
 
     const summaryText = [
-      "Synthetic demo parameters — not real pharmacology.",
+      active.drugs.length > 1
+        ? "Additive exposure model — each medicine's own curve, summed; no interaction simulated."
+        : "Parameters sourced from the approved, cited PK row.",
       active.description.trim() ? `Case: ${active.description.trim().slice(0, 400)}` : "",
       ...report.bullets,
     ]
@@ -375,7 +424,7 @@ export default function Simulator() {
       .slice(0, 1000);
 
     const { error } = await client.reports.saveReport({
-      title: `${exampleDrug.name} — ${new Date().toISOString().slice(0, 10)}`,
+      title: `${treatmentLabel} — ${new Date().toISOString().slice(0, 10)}`.slice(0, 100),
       profileSnapshot: {
         ageYears: active.ageYears,
         weightKg: active.weightKg,
@@ -443,13 +492,17 @@ export default function Simulator() {
               Simulator
             </h1>
             <span className="hidden font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3 sm:inline">
-              {exampleDrug.name}
+              {treatmentLabel}
             </span>
           </div>
           <p className="max-w-[46ch] text-right font-mono text-[10px] uppercase leading-4 tracking-[0.1em] text-warn">
-            <span className="sm:hidden">Fake drug · test values</span>
+            <span className="sm:hidden">
+              {active.drugs.length > 0 ? "PK sourced · cited" : "No medicine"}
+            </span>
             <span className="hidden sm:inline">
-              {EXAMPLE_BANNER.split(". ").slice(0, 2).join(". ")}.
+              {active.drugs.length > 0
+                ? "Parameters from the approved, cited PK rows. Additive across medicines — no interaction simulated."
+                : "No medicine added. Search the catalogue to build a treatment."}
             </span>
           </p>
         </div>
@@ -638,7 +691,10 @@ export default function Simulator() {
                 </dl>
 
                 {/* Published papers about the process this step narrates. */}
-                <StepLiterature topic={topicForOrgan(step.organ)} />
+                <StepLiterature
+                  topic={topicForOrgan(step.organ)}
+                  drugs={active.drugs.map((d) => ({ id: d.drugId, name: d.name }))}
+                />
               </article>
             );
           })}

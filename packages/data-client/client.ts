@@ -19,6 +19,7 @@ import {
   signOut as authSignOut,
 } from './auth';
 import { getProfile, saveProfile } from './profile';
+import { getDrugPk, searchDrugs, type DrugCatalogHit, type DrugPkRow } from './drugs';
 import {
   deleteAllMyData,
   deleteReport,
@@ -79,6 +80,16 @@ export interface DataClient {
     getReport(id: string): Promise<{ data: SavedReport | null; error: { code: string; message: string } | null }>;
     deleteReport(id: string): Promise<{ data: { deleted: true } | null; error: { code: string; message: string } | null }>;
     deleteAllMyData(): Promise<{ data: { reportsDeleted: number; profileDeleted: boolean } | null; error: { code: string; message: string } | null }>;
+  };
+
+  /**
+   * Drug catalogue helpers (public read — no session needed).
+   * - searchDrugs(q, limit): catalogue search via the search_drugs RPC
+   * - getDrugPk(drugId): one drug's approved, cited PK row, or null
+   */
+  drugs: {
+    searchDrugs(q: string, limit?: number): Promise<{ data: DrugCatalogHit[] | null; error: { code: string; message: string } | null }>;
+    getDrugPk(drugId: string): Promise<{ data: DrugPkRow | null; error: { code: string; message: string } | null }>;
   };
 }
 
@@ -146,6 +157,10 @@ export function createDataClient(args: {
       deleteReport: (id: string) => withData(() => deleteReport(id, backend)),
       deleteAllMyData: () => withData(() => deleteAllMyData(backend)),
     },
+    drugs: {
+      searchDrugs: (q: string, limit?: number) => withData(() => searchDrugs(q, limit ?? 20, backend)),
+      getDrugPk: (drugId: string) => withData(() => getDrugPk(drugId, backend)),
+    },
   };
 }
 
@@ -174,6 +189,10 @@ function failedClient(error: { code: string; message: string }): DataClient {
       getReport: async () => err,
       deleteReport: async () => err,
       deleteAllMyData: async () => err,
+    },
+    drugs: {
+      searchDrugs: async () => err,
+      getDrugPk: async () => err,
     },
   };
 }

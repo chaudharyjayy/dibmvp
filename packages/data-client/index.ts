@@ -12,6 +12,7 @@ export {
   signOut,
 } from './auth';
 export { getProfile, saveProfile } from './profile';
+export { searchDrugs, getDrugPk, type DrugCatalogHit, type DrugPkRow } from './drugs';
 export {
   deleteAllMyData,
   deleteReport,
