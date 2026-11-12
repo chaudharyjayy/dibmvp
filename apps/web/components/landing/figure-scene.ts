@@ -23,6 +23,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { EASE_OUT } from "./easing";
 import { curve, DIAL_HOURS, levelsAt, type OrganId, type OrganLevels } from "./dial";
+import { regionOf, type BrainRegion } from "./brain-regions";
+import { BRAIN_PART_NAMES } from "./brain-part-names";
 
 export type { OrganId };
 
@@ -63,6 +65,8 @@ export type FigureSceneOptions = {
   maxDpr?: number;
   /** Reports the model's load state so the page can show it. */
   onStatus?: (status: FigureStatus) => void;
+  /** Called when the pointer lands on a part of the brain. */
+  onBrainRegion?: (region: BrainRegion | null) => void;
 };
 
 export type FigureScene = {
@@ -87,6 +91,9 @@ export type FigureScene = {
    */
   getPeakOrgan(): { id: OrganId; level: number } | null;
   getOrganAnchor(id: OrganId): { x: number; y: number } | null;
+  /** The brain region under the pointer, in the canvas's own pixels, or null
+   *  when the pointer is not over the brain. */
+  getBrainRegion(): { region: BrainRegion; x: number; y: number } | null;
   /** Whether the model is still loading, ready, or failed to load. */
   getStatus(): FigureStatus;
   /** Try the model again after a failure. */
@@ -237,23 +244,57 @@ const GLB = {
   liver: ["Liver"],
   lungs: ["Lung_L", "Lung_R"],
   kidneys: ["Kidney_L", "Kidney_R"],
-  brain: ["Brain_L", "Brain_R", "Cerebellum", "BrainStem"],
+  /** The brain is 38 named gyri and 27 deep nuclei, plus the cerebellum and
+   *  the brainstem. They are matched by prefix because the exact set is the
+   *  anatomy's, not the web's: a click on the model has to be able to say
+   *  which gyrus it landed on. */
+  brainPrefixes: ["Cortex_", "Deep_"],
+  brainExtras: ["Cerebellum", "BrainStem"],
   airway: ["Trachea", "Bronchus_L", "Bronchus_R"],
+  /** Every mesh that is neither an organ nor the shell: the great vessels,
+   *  the heart's coronaries and the great cardiac veins. They all carry the
+   *  blood shape, so they are found by what they are rather than by name. */
   vessels: [
-    "Aorta",
-    "Carotid_L",
+    "Aorta_Ascending",
+    "Aorta_Arch",
+    "Aorta_Descending",
+    "Brachiocephalic",
     "Carotid_R",
-    "VenaCava_Inf",
+    "Carotid_L",
+    "Subclavian_R",
+    "Subclavian_L",
+    "PulmonaryArtery",
+    "PulmonaryVein",
     "VenaCava_Sup",
-    "PulmonaryTrunk",
-    "PulmonaryArtery_L",
-    "PulmonaryArtery_R",
-    "RenalArtery_L",
+    "VenaCava_Inf",
     "RenalArtery_R",
-    "RenalVein_L",
+    "RenalArtery_L",
     "RenalVein_R",
+    "RenalVein_L",
+    "CommonIliac_Art_R",
+    "CommonIliac_Art_L",
+    "CommonIliac_Vein_R",
+    "CommonIliac_Vein_L",
+    "BrachioVein_R",
+    "BrachioVein_L",
+    "JugularVein_R",
+    "JugularVein_L",
+    "Coronary_L_stem",
+    "Coronary_R_trunk",
+    "Coronary_Circumflex",
+    "Coronary_PostIV",
+    "Coronary_AntIV",
+    "Coronary_Marginal",
+    "Cardiac_GreatVein",
+    "Cardiac_MiddleVein",
   ],
 } as const;
+
+/** True for a node that is part of the brain. */
+function isBrainMesh(name: string): boolean {
+  if (GLB.brainExtras.includes(name as (typeof GLB.brainExtras)[number])) return true;
+  return GLB.brainPrefixes.some((prefix) => name.startsWith(prefix));
+}
 
 /** Which dial organ each mesh follows. Vessels carry the blood shape. */
 const FOLLOW: Record<string, OrganId> = {
@@ -281,20 +322,40 @@ const BASE: Record<string, number> = {
 };
 
 const ARTERY = new Set([
-  "Aorta",
+  "Aorta_Ascending",
+  "Aorta_Arch",
+  "Aorta_Descending",
+  "Brachiocephalic",
   "Carotid_L",
   "Carotid_R",
+  "Subclavian_L",
+  "Subclavian_R",
+  "PulmonaryVein",
   "RenalArtery_L",
   "RenalArtery_R",
+  "CommonIliac_Art_L",
+  "CommonIliac_Art_R",
+  "Coronary_L_stem",
+  "Coronary_R_trunk",
+  "Coronary_Circumflex",
+  "Coronary_PostIV",
+  "Coronary_AntIV",
+  "Coronary_Marginal",
 ]);
 const VEIN = new Set([
   "VenaCava_Inf",
   "VenaCava_Sup",
-  "PulmonaryTrunk",
-  "PulmonaryArtery_L",
-  "PulmonaryArtery_R",
+  "PulmonaryArtery",
   "RenalVein_L",
   "RenalVein_R",
+  "CommonIliac_Vein_L",
+  "CommonIliac_Vein_R",
+  "BrachioVein_L",
+  "BrachioVein_R",
+  "JugularVein_L",
+  "JugularVein_R",
+  "Cardiac_GreatVein",
+  "Cardiac_MiddleVein",
 ]);
 
 function baseFor(name: string): number {
@@ -304,9 +365,7 @@ function baseFor(name: string): number {
   if (name === "Lung_L" || name === "Lung_R") return BASE.lung;
   if (ARTERY.has(name)) return BASE.artery;
   if (VEIN.has(name)) return BASE.vein;
-  if (GLB.brain.includes(name as (typeof GLB.brain)[number]) || name === "BrainStem") {
-    return BASE.brain;
-  }
+  if (isBrainMesh(name)) return BASE.brain;
   if (GLB.airway.includes(name as (typeof GLB.airway)[number])) return BASE.airway;
   return 0xd7dee8;
 }
@@ -521,6 +580,54 @@ export function createFigureScene(
     for (const child of node.children) collectMeshes(child);
   };
 
+  /* Brain picking ------------------------------------------------------- */
+  /* The brain is 65 named parts, so a hit is answered by name: the mesh
+     that was hit says which gyrus, and the parts list says what it is.
+     Nothing is guessed from the geometry. */
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  /** The meshes a brain hit can land on. */
+  let brainTargets: THREE.Mesh[] = [];
+  /** Where the pointer is over the brain, in canvas pixels. */
+  let brainHit: { region: BrainRegion; point: THREE.Vector3 } | null = null;
+
+  /** Reads the anatomical name out of a mesh name: "Cortex_FMA72653_R". */
+  function partName(meshName: string): { id: string; name: string } | null {
+    const match = /^(?:Cortex|Deep)_(FMA\d+|BP\d+)_[LRM]$/.exec(meshName);
+    if (!match) return null;
+    const id = match[1];
+    const name = BRAIN_PART_NAMES[id];
+    return name ? { id, name } : null;
+  }
+
+  function pickBrain(clientX: number, clientY: number): void {
+    if (!modelReady || brainTargets.length === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(brainTargets, false);
+    let found: { region: BrainRegion; point: THREE.Vector3 } | null = null;
+    for (const hit of hits) {
+      const part = partName(hit.object.name);
+      if (!part) continue;
+      const region = regionOf(part.id, part.name);
+      if (!region) continue;
+      found = { region, point: hit.point.clone() };
+      break;
+    }
+    brainHit = found;
+    options.onBrainRegion?.(found ? found.region : null);
+  }
+
+  /** Clears the brain hit, when the pointer leaves the figure. */
+  function clearBrain(): void {
+    if (!brainHit) return;
+    brainHit = null;
+    options.onBrainRegion?.(null);
+  }
+
   const finishModel = (group: THREE.Group) => {
     collectMeshes(group);
 
@@ -546,12 +653,19 @@ export function createFigureScene(
       tinted.push({ mesh, id, material });
     }
 
-    for (const name of GLB.brain) {
-      const mesh = meshByName.get(name);
-      if (mesh) {
+    for (const [name, mesh] of meshByName) {
+      if (isBrainMesh(name)) {
         mesh.material = brainMaterial;
         mesh.renderOrder = 2;
       }
+    }
+
+    // The pickable brain: the named gyri and nuclei. The cerebellum and the
+    // brainstem are in the brain visually but are not lobes, so they are not
+    // pick targets.
+    brainTargets = [];
+    for (const [name, mesh] of meshByName) {
+      if (name.startsWith("Cortex_") || name.startsWith("Deep_")) brainTargets.push(mesh);
     }
 
     for (const name of GLB.airway) {
@@ -931,6 +1045,19 @@ export function createFigureScene(
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas);
   document.addEventListener("visibilitychange", onVisibility);
+
+  /* Pointer picking. The brain is the only part of the figure that answers a
+     click, so the listener is on the canvas and the raycast is only run
+     against the brain meshes. */
+  const onPointerMove = (event: PointerEvent) => {
+    pickBrain(event.clientX, event.clientY);
+  };
+  const onPointerLeave = () => {
+    clearBrain();
+  };
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerleave", onPointerLeave);
+
   raf = requestAnimationFrame(frame);
 
   return {
@@ -1002,6 +1129,18 @@ export function createFigureScene(
         y: (-point.y * 0.5 + 0.5) * height,
       };
     },
+    getBrainRegion() {
+      if (!brainHit) return null;
+      // The hit is in world space; the label wants canvas pixels.
+      const point = brainHit.point.clone().project(camera);
+      const width = canvas.clientWidth || 1;
+      const height = canvas.clientHeight || 1;
+      return {
+        region: brainHit.region,
+        x: (point.x * 0.5 + 0.5) * width,
+        y: (-point.y * 0.5 + 0.5) * height,
+      };
+    },
     getStatus() {
       return status;
     },
@@ -1017,6 +1156,8 @@ export function createFigureScene(
       cancelAnimationFrame(raf);
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerleave", onPointerLeave);
       scene.traverse((node) => {
         const mesh = node as THREE.Mesh;
         if (mesh.isMesh) {

@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import BrainReadout from "./brain-readout";
 import DialStrip, { type DialHandle } from "./dial-strip";
 import GlassFigure from "./glass-figure";
 import Reticle from "./reticle";
@@ -39,6 +40,8 @@ export default function FigurePanel({
 }: FigurePanelProps) {
   const sceneRef = useRef<FigureScene | null>(null);
   const timeRef = useRef(0);
+  /** The figure's canvas, so the brain readout can stay inside it. */
+  const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   // Used by the scroll sequence (step 4) to drive the dial.
   const dialRef = useRef<DialHandle | null>(null);
   const onSceneRef = useRef(onScene);
@@ -77,12 +80,14 @@ export default function FigurePanel({
           data-figure-canvas
           className="hud-corners relative h-[max(420px,50svh)] w-full overflow-hidden bg-page/40 md:h-[clamp(400px,calc(100svh-330px),700px)] md:rounded-[12px]"
         >
-          <GlassFigure onScene={handleScene} />
+          <GlassFigure onScene={handleScene} onCanvas={setCanvas} />
           {/* The scanner sweep: the one piece of theatre on the page, and the
               thing that makes the figure read as a hologram. */}
           <div className="hud-scan" aria-hidden="true" />
           {/* The reticle locks onto the organ holding the highest level. */}
           <Reticle scene={scene} />
+          {/* Pointing at the brain names the part under the pointer. */}
+          <BrainReadout scene={scene} canvas={canvas} />
         </div>
 
         <DialStrip onTime={handleTime} onReady={handleDialReady} autoplay={autoplay} />
