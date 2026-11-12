@@ -31,6 +31,7 @@ import type { BrainRegion } from "@/components/anatomy/regions";
 import SimulatorConsole, { type SimulatorInput } from "./console";
 import TimeDial, { type DialSource } from "./time-dial";
 import BodyFigure from "./body-figure";
+import StepLiterature from "./step-literature";
 import { rise } from "./motion";
 import {
   conditionById,
@@ -41,6 +42,7 @@ import {
 } from "./condition";
 import type { FocusOrgan, SimulatorScene } from "./scene";
 import { exampleDrug, EXAMPLE_BANNER } from "@/lib/example-drug";
+import { topicForOrgan } from "@/lib/pubmed";
 
 type SexUi = "female" | "male" | "other";
 const toEngineSex = (s: SexUi): BodyProfile["sex"] =>
@@ -634,6 +636,9 @@ export default function Simulator() {
                     </div>
                   ))}
                 </dl>
+
+                {/* Published papers about the process this step narrates. */}
+                <StepLiterature topic={topicForOrgan(step.organ)} />
               </article>
             );
           })}

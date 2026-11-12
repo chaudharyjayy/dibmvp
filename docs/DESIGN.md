@@ -145,3 +145,25 @@ reading. Neither one is a way to change the dose.
 - **The browser's own validation bubbles do not appear.** The panel says
   what is wrong with the input, in the panel, in the same words every time.
 
+### The prescription input
+
+- The console takes a prescription written like a script — `200 mg every
+  8 h for 3 doses`, `500 mg once`, `100 mg at 0, 6, 12`, `250 mg q8h x3`
+  — and loads it into the dose rows with **Load**.
+- The parser is a loader, not state the engine reads. The dose rows stay
+  the visible, editable source of truth; loading a script only places
+  amounts at times and never invents drug properties. A bad script says
+  what is missing, in the panel, not in a browser bubble.
+
+### The literature strip
+
+- Each walkthrough step carries a small strip of published papers about
+  the process the step narrates, fetched from PubMed (NCBI E-utilities)
+  through the app's own cached route. The queries are fixed, field-tagged
+  and reproducible in `lib/pubmed.ts`; the route serves only those
+  topics.
+- The strip loads when it scrolls into view, holds at most three papers,
+  and says what it is: *context, not the model's output and not advice*.
+  The engine never reads it. If PubMed is unreachable the step reads
+  fine without it.
+
