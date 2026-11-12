@@ -37,9 +37,20 @@ type CacheKey = string;
 const cache = new Map<CacheKey, Promise<unknown>>();
 
 async function getJson(url: URL): Promise<unknown> {
-  const response = await fetch(url, { headers: { "user-agent": `${TOOL}/1.0` } });
-  if (!response.ok) throw new Error(`PubMed returned ${response.status}`);
-  return response.json();
+  // One quiet retry: from a conference Wi-Fi or a laptop about to sleep,
+  // a single miss is often a transient refusal rather than an outage.
+  // The second failure is reported as unreachable — the step reads fine
+  // without the strip.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await fetch(url, { headers: { "user-agent": `${TOOL}/1.0` } });
+      if (!response.ok) throw new Error(`PubMed returned ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      if (attempt === 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+  }
 }
 
 function cached<T>(key: CacheKey, load: () => Promise<T>): Promise<T> {

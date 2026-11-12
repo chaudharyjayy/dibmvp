@@ -15,6 +15,9 @@ import type { NextConfig } from "next";
 const staticExport = process.env.STATIC_EXPORT === "1";
 
 const nextConfig: NextConfig = {
+  /* One source of truth for the base path: the browser inlines this at build time,
+     so client code can resolve static assets (the anatomy models) under it. */
+  env: { NEXT_PUBLIC_BASE_PATH: staticExport ? "/dibmvp" : "" },
   /* Allow importing the framework-free workspace packages (TS source). */
   transpilePackages: ["@dib/data-client", "@dib/engine", "@dib/summary"],
   ...(staticExport

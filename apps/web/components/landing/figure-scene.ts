@@ -428,7 +428,7 @@ export function createFigureScene(
     // The loader reports its own failure, so the only thing left here is the
     // visible consequence: the figure stays out, but the dial still works.
     void loadAnatomyModel(
-      "/models/human_anatomy.glb",
+      `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/models/human_anatomy.glb`,
       {
         body: bodyMaterial,
         brain: brainMaterial,
