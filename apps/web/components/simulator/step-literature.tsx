@@ -21,6 +21,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { articleMetaLine, articleUrl, type LiteratureArticle, type LiteratureTopic } from "@/lib/pubmed";
+import { fetchDrugLiterature, fetchTopicLiterature } from "@/lib/pubmed-client";
+import type { DrugLiterature } from "@/lib/pubmed-client";
 
 export type StepLiteratureProps = {
   topic: LiteratureTopic;
@@ -57,36 +59,25 @@ export default function StepLiterature({ topic, drugs = [] }: StepLiteratureProp
         started = true;
         observer.disconnect();
 
-        const fetchSection = (
-          url: string,
-          apply: (section: Section) => void,
-        ) => {
-          fetch(url)
-            .then((response) => response.json())
-            .then((data: { articles?: LiteratureArticle[]; error?: string | null }) => {
-              if (cancelled) return;
-              if (data.error || !Array.isArray(data.articles)) {
-                apply({ state: "error" });
-                return;
-              }
-              apply({ state: "done", articles: data.articles });
-            })
-            .catch(() => {
-              if (!cancelled) apply({ state: "error" });
-            });
-        };
-
         setOrganSection({ state: "loading" });
-        fetchSection(`/api/literature?topic=${topic}`, setOrganSection);
+        fetchTopicLiterature(topic).then(({ articles, error }) => {
+          if (cancelled) return;
+          setOrganSection(error ? { state: "error" } : { state: "done", articles });
+        });
 
         // One section per medicine, at most three: the strip stays small.
         const shown = drugs.slice(0, 3);
         setDrugSections(Object.fromEntries(shown.map((d) => [d.id, { state: "loading" }])));
         for (const drug of shown) {
-          fetchSection(
-            `/api/literature?drugId=${encodeURIComponent(drug.id)}`,
-            (section) => setDrugSections((prev) => ({ ...prev, [drug.id]: section })),
-          );
+          fetchDrugLiterature(drug.id).then((result: DrugLiterature) => {
+            if (cancelled) return;
+            setDrugSections((prev) => ({
+              ...prev,
+              [drug.id]: result.error
+                ? { state: "error" }
+                : { state: "done", articles: result.articles },
+            }));
+          });
         }
       },
       // A strip loads a little before the reader reaches it: the fetch has

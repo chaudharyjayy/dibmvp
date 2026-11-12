@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CONDITIONS } from "./condition";
 import { parsePrescription } from "./prescription";
+import { getApprovedPk, searchCatalogue } from "@/lib/catalogue";
 
 export type DoseRow = {
   timeH: number;
@@ -403,10 +404,9 @@ function DrugSearch({
     }
     setBusy(true);
     const timer = setTimeout(() => {
-      fetch(`/api/drugs?q=${encodeURIComponent(term)}`)
-        .then((r) => r.json())
-        .then((data: { hits?: CatalogueHit[] }) => {
-          setHits(Array.isArray(data.hits) ? data.hits : []);
+      searchCatalogue(term, 12)
+        .then((result) => {
+          setHits(result.hits ?? []);
           setOpen(true);
         })
         .catch(() => {
@@ -433,12 +433,11 @@ function DrugSearch({
     setOpen(false);
     setQuery("");
     setBusy(true);
-    fetch(`/api/drugs?id=${encodeURIComponent(hit.id)}`)
-      .then((r) => r.json())
-      .then((data: { pk?: { doseMinMg: number | null; doseMaxMg: number | null } | null }) => {
+    Promise.resolve(getApprovedPk(hit.id))
+      .then((pk) => {
         const range =
-          data.pk && data.pk.doseMinMg != null && data.pk.doseMaxMg != null
-            ? ([Number(data.pk.doseMinMg), Number(data.pk.doseMaxMg)] as [number, number])
+          pk && pk !== "error" && pk !== "unconfigured" && pk.doseMinMg != null && pk.doseMaxMg != null
+            ? ([Number(pk.doseMinMg), Number(pk.doseMaxMg)] as [number, number])
             : null;
         onAdd(hit, range);
       })
