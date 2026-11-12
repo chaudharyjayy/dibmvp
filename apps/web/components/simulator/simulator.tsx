@@ -42,6 +42,7 @@ import {
 } from "./condition";
 import type { FocusOrgan, SimulatorScene } from "./scene";
 import { drugFromPk, composeTreatment } from "@/lib/treatment";
+import { getApprovedPk } from "@/lib/catalogue";
 import type { DrugPkRow } from "@dib/data-client";
 import { topicForOrgan } from "@/lib/pubmed";
 
@@ -166,11 +167,10 @@ export default function Simulator() {
     let cancelled = false;
     for (const drug of active.drugs) {
       if (pkRows.has(drug.drugId)) continue;
-      fetch(`/api/drugs?id=${encodeURIComponent(drug.drugId)}`)
-        .then((response) => response.json())
-        .then((data: { pk?: DrugPkRow | null }) => {
-          if (cancelled || !data.pk) return;
-          setPkRows((prev) => new Map(prev).set(drug.drugId, data.pk as DrugPkRow));
+      getApprovedPk(drug.drugId)
+        .then((pk) => {
+          if (cancelled || !pk || pk === "error" || pk === "unconfigured") return;
+          setPkRows((prev) => new Map(prev).set(drug.drugId, pk as DrugPkRow));
         })
         .catch(() => {
           /* the drug stays unrunnable without its row; the console says why */

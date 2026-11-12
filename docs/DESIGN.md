@@ -177,14 +177,23 @@ reading. Neither one is a way to change the dose.
 ### The literature strip
 
 - Each walkthrough step carries a small strip of published papers about
-  the process the step narrates, fetched from PubMed (NCBI E-utilities)
-  through the app's own cached route. The queries are fixed, field-tagged
-  and reproducible in `lib/pubmed.ts`; the route serves only those
-  topics.
+  the process the step narrates, fetched straight from the browser via
+  NCBI E-utilities (public endpoint, open CORS). The queries are fixed,
+  field-tagged and reproducible in `lib/pubmed.ts`; a small in-memory
+  cache makes one fetch per topic per session. The build has no server,
+  so the strip needs no route.
 - The strip follows the treatment: below the organ's papers it shows one
   section per medicine (at most three), the drug's PubMed query built
-  from the catalogue name resolved server-side. The request never
-  carries search text — only a drug id.
+  from the catalogue name (the id is all the request carries; the name
+  is resolved from the catalogue, never from visitor-typed text).
+
+### Deployment
+
+- The app deploys as a fully static site (`output: "export"`,
+  basePath `/dibmvp`) to GitHub Pages via `.github/workflows/pages.yml`.
+  There is no server: the browser talks to Supabase with the anon key
+  and to PubMed's E-utilities directly, the same way sign-in and saved
+  reports already worked in the browser.
 - The strip loads when it scrolls into view, holds at most three papers,
   and says what it is: *context, not the model's output and not advice*.
   The engine never reads it. If PubMed is unreachable the step reads

@@ -77,6 +77,12 @@ export type LiteratureResult = {
   error: "pubmed-unreachable" | null;
 };
 
+/** A drug's PubMed query: the template is fixed; only the name varies, and
+ * only because it came from the catalogue, not from the visitor's keyboard. */
+export function drugTopicQuery(name: string): string {
+  return `("${name}"[nm] OR "${name}"[mh]) AND (pharmacokinetics[tiab] OR "Drug Interactions"[mh] OR adverse effects[tiab]) AND english[la]`;
+}
+
 /** The pubmed page for an article. */
 export function articleUrl(pmid: string): string {
   return `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`;
