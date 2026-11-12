@@ -110,7 +110,7 @@ const CAMERA_FOV = 32;
 const CAMERA_Z = 6.4;
 
 const COLORS = {
-  body: 0xb6e4fb,
+  body: 0x4fb8ff,
   tint: 0x22d3ee,
   // Base colours as they came out of the .blend, as raw sRGB components.
   brain: 0x9e4d4d, // (0.62, 0.30, 0.30)
@@ -158,15 +158,21 @@ const BODY_FRAGMENT = /* glsl */ `
   varying vec3 vViewDir;
   varying float vWorldY;
   void main() {
-    float fresnel = 1.0 - abs(dot(normalize(vWorldNormal), normalize(vViewDir)));
-    // A dark panel needs a rim, not a wash: the light sits on the silhouette
-    // edge, so the body reads as a glowing outline with the organs visible
-    // through it.
-    float alpha = 0.07 + pow(fresnel, 1.9) * 0.95;
+    vec3 n = normalize(vWorldNormal);
+    vec3 v = normalize(vViewDir);
+    // The skin is a thin sheet, so what reads is its edge: the light gathers
+    // where the surface turns away from the eye. The Fresnel term alone is
+    // not enough — on a sheet this thin, the whole surface catches it and
+    // the body turns into a solid white shell.
+    float facing = abs(dot(n, v));
+    // A dead zone in the middle of the term, so the flat of the sheet stays
+    // clear and the organs read through it.
+    float edge = smoothstep(0.45, 0.96, 1.0 - facing);
     // The scan band is what makes it read as a hologram rather than a ghost:
     // one horizontal band of light travelling down the body.
     float band = exp(-pow((vWorldY - uScan) * 6.5, 2.0));
-    gl_FragColor = vec4(uColor * (1.0 + band * 1.6), alpha + band * 0.12);
+    float alpha = edge * 0.85 + band * 0.12;
+    gl_FragColor = vec4(uColor * (0.85 + band * 1.5), alpha);
   }
 `;
 

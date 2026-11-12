@@ -19,3 +19,7 @@ data/.cache/
 # BodyParts3D anatomical meshes (216 MB, not committed)
 # Fetched by scripts/anatomy/fetch-meshes.sh; see assets/anatomy/README.md.
 .asset-cache/
+
+# Python bytecode from the Blender scripts
+__pycache__/
+*.pyc
