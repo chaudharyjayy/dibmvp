@@ -35,7 +35,7 @@ export type DrugLine = {
   drugId: string;
   name: string;
   doses: DoseRow[];
-  /** The label's dose range, from the approved PK row. */
+  /** The range the source studied, from the approved PK row. */
   doseRange: [number, number] | null;
   /** Whether an approved PK row exists at all; without one, no run. */
   hasPk: boolean;
@@ -132,6 +132,12 @@ export default function SimulatorConsole({
       if (drug.doses.length === 0) {
         return `Add at least one dose for ${drug.name}.`;
       }
+      if (
+        drug.doseRange &&
+        drug.doses.some((r) => Number.isFinite(r.doseMg) && r.doseMg > (drug.doseRange as [number, number])[1])
+      ) {
+        return `Outside the range this source studied (${drug.name} ${drug.doseRange[0]}–${drug.doseRange[1]} mg). The model is not valid here.`;
+      }
       if (drug.doses.some((r) => !Number.isFinite(r.doseMg) || r.doseMg <= 0 || r.doseMg > 10_000)) {
         return `Each ${drug.name} dose must be a number greater than 0 and at most 10,000 mg.`;
       }
@@ -199,7 +205,8 @@ export default function SimulatorConsole({
                 {
                   drugId: hit.id,
                   name: hit.name,
-                  doses: [{ timeH: 0, doseMg: range ? Math.round(((range[0] + range[1]) / 2) / 50) * 50 || range[0] : 100 }],
+                  // No default dose: the visitor chooses it, seeing the studied range.
+                  doses: [],
                   doseRange: range,
                   hasPk: true,
                 },
@@ -503,7 +510,7 @@ function DrugSearch({
                       {already
                         ? "added"
                         : runnable
-                          ? "pk sourced"
+                          ? "author-verified"
                           : hit.pkStatus === "partial"
                             ? "pk partial"
                             : "pk not sourced"}
@@ -636,9 +643,16 @@ function DrugCard({
     );
   }, [script, onLoadScript]);
 
+  /** The lowest studied bound this drug has; a dose below it is allowed
+      with a visible warning, never blocked. */
+  const belowMin =
+    drug.doseRange?.[0] ?? null;
+  const anyBelow =
+    belowMin != null && drug.doses.some((r) => Number.isFinite(r.doseMg) && r.doseMg > 0 && r.doseMg < belowMin);
+
   const rangeHint = drug.doseRange
-    ? `label range ${drug.doseRange[0]}–${drug.doseRange[1]} mg`
-    : "no label range on file";
+    ? `studied range ${drug.doseRange[0]}–${drug.doseRange[1]} mg`
+    : "no studied range on file";
 
   return (
     <div className="rounded-xl border border-line bg-surface/40 p-3">
@@ -656,6 +670,15 @@ function DrugCard({
           ×
         </button>
       </div>
+
+      {anyBelow === true ? (
+        <p
+          role="alert"
+          className="mt-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-2.5 py-1.5 text-[12px] leading-4 text-amber-200/90"
+        >
+          Below the lower bound this source studied — allowed, but outside what the evidence covers.
+        </p>
+      ) : null}
 
       {/* Script loader for this medicine */}
       <div className="mt-2 flex gap-2">

@@ -122,6 +122,23 @@ export type Narration = {
   body: string;
   /** Two or three numbers, labelled. */
   figures: Array<{ label: string; value: string }>;
+  /**
+   * Several medicines in the treatment: their own numbers, one group per
+   * medicine, never a summed set. Present only when the treatment holds
+   * more than one simulatable medicine.
+   */
+  groups?: Array<{
+    name: string;
+    color: string;
+    figures: Array<{ label: string; value: string }>;
+  }>;
+};
+
+/** One medicine's own moment — what a walkthrough group carries. */
+export type MedicationBreakdown = {
+  name: string;
+  color: string;
+  moment: SimMoment;
 };
 
 /** What each organ is, in the model's own terms. */
@@ -135,22 +152,20 @@ const ORGAN_TITLE: Record<FocusOrgan, string> = {
 };
 
 /**
- * The narration for one organ at one moment.
+ * The prose and figures for one organ at one moment.
  *
  * Every number is the engine's. The wording says what the model does, not
  * what the drug treats — the model does not know that.
  */
-export function narrate(
+function organContent(
   organ: FocusOrgan | null,
   moment: SimMoment,
   condition: Condition
-): Narration {
+) {
   const f = (x: number, digits = 1) => x.toFixed(digits);
 
   if (!organ) {
     return {
-      organ: null,
-      title: "The whole body — one pool of blood",
       body:
         `The model has a single blood compartment. At ${f(moment.hours)} h it holds ` +
         `${f(moment.bodyMg)} mg, a concentration of ${f(moment.concMgPerL, 3)} mg/L, and it is ` +
@@ -168,8 +183,6 @@ export function narrate(
     case "gut": {
       const absorbed = moment.bodyMg;
       return {
-        organ,
-        title: ORGAN_TITLE.gut,
         body:
           `The dose goes into the gut as a depot. Absorbed so far: ${f(absorbed)} mg. ` +
           `Still waiting to be taken up: ${f(moment.gutMg)} mg. ` +
@@ -184,8 +197,6 @@ export function narrate(
     }
     case "heart":
       return {
-        organ,
-        title: ORGAN_TITLE.heart,
         body:
           `The absorbed dose is now in the blood: ${f(moment.bodyMg)} mg, a concentration of ` +
           `${f(moment.concMgPerL, 3)} mg/L at ${f(moment.hours)} h. ` +
@@ -198,8 +209,6 @@ export function narrate(
       };
     case "lungs":
       return {
-        organ,
-        title: ORGAN_TITLE.lungs,
         body:
           `The lungs are perfused by the same blood as everything else, so they carry the ` +
           `same ${f(moment.concMgPerL, 3)} mg/L. The model has no separate lung compartment — ` +
@@ -211,8 +220,6 @@ export function narrate(
       };
     case "liver":
       return {
-        organ,
-        title: ORGAN_TITLE.liver,
         body:
           `The liver is the body's main clearance, and here it is working: ` +
           `${f(moment.eliminationMgPerH, 2)} mg/h is being removed from the blood at ` +
@@ -225,8 +232,6 @@ export function narrate(
       };
     case "kidneys":
       return {
-        organ,
-        title: ORGAN_TITLE.kidneys,
         body:
           `The kidneys filter what the liver has already cleared. The model runs a single ` +
           `clearance term, so ${f(moment.eliminationMgPerH, 2)} mg/h is leaving the blood in total ` +
@@ -239,8 +244,6 @@ export function narrate(
     case "brain":
     default:
       return {
-        organ: "brain",
-        title: ORGAN_TITLE.brain,
         body:
           `The brain is supplied by the same blood, so it sees the same ` +
           `${f(moment.concMgPerL, 3)} mg/L at ${f(moment.hours)} h. The model has no brain ` +
@@ -252,6 +255,64 @@ export function narrate(
         ],
       };
   }
+}
+
+/** The title of a step with no medicine and no organ to name. */
+const WHOLE_BODY_TITLE = "The whole body — one pool of blood";
+
+const MULTI_BODY: Record<string, string> = {
+  none:
+    "Each medicine in this treatment has its own curve through the same blood. " +
+    "The model does not know how they act together. Interactions are not modelled.",
+  gut:
+    "Each medicine is taken up from the gut at its own rate into its own pool. " +
+    "The gut is not part of this model. Interactions are not modelled.",
+  heart:
+    "The same blood carries every medicine. The figures are per medicine, never a sum. Interactions are not modelled.",
+  lungs:
+    "One blood pool per medicine, one lung — no separate lung compartment. Interactions are not modelled.",
+  liver:
+    "Clearance is computed per medicine from its own parameters. There is no combined clearing. Interactions are not modelled.",
+  kidneys:
+    "One clearance term per medicine; never one number for the treatment. Interactions are not modelled.",
+  brain:
+    "The brain is supplied by the same blood, per medicine, with no model of the blood–brain barrier. Interactions are not modelled.",
+};
+
+/**
+ * The narration for one step.
+ *
+ * With one medicine this is exactly the single-medicine design. With several,
+ * the numbers travel as one group per medicine — nothing is summed across
+ * drugs, because summing milligrams of different drugs is not a
+ * pharmacological quantity.
+ */
+export function narrate(
+  organ: FocusOrgan | null,
+  moment: SimMoment,
+  condition: Condition,
+  breakdown?: MedicationBreakdown[]
+): Narration {
+  if (!breakdown || breakdown.length <= 1) {
+    const content = organContent(organ, moment, condition);
+    return {
+      organ,
+      title: organ ? ORGAN_TITLE[organ] : WHOLE_BODY_TITLE,
+      ...content,
+    };
+  }
+  const groups = breakdown.map((b) => {
+    const { figures } = organContent(organ, b.moment, condition);
+    return { name: b.name, color: b.color, figures };
+  });
+  const title = organ ? ORGAN_TITLE[organ] : WHOLE_BODY_TITLE;
+  return {
+    organ,
+    title,
+    body: MULTI_BODY[organ ?? "none"] ?? MULTI_BODY.none,
+    figures: [],
+    groups,
+  };
 }
 
 /**

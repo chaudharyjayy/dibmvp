@@ -130,11 +130,11 @@ describe('input validation & dose-range warnings', () => {
     ).toThrow(/unknown drug/i);
   });
 
-  it('returns a warning (not a throw) for doses outside the label range', () => {
+  it('returns a warning (not a throw) for doses outside the range the source studied', () => {
     const doses: DoseEvent[] = [{ drugId: 'fixture-drug', doseMg: 1000, timeH: 0 }];
     const res = run(fixtureDrug, doses);
     expect(res.warnings.length).toBe(1);
-    expect(res.warnings[0]).toMatch(/outside the label range/i);
+    expect(res.warnings[0]).toMatch(/outside the range the source studied/i);
   });
 
   it('throws when one-compartment parameters are missing', () => {

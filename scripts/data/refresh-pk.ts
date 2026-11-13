@@ -199,7 +199,7 @@ async function main(): Promise<void> {
       F: row.f_bioavailability,
       CL_L_per_h_per_kg: row.cl_l_per_h_per_kg,
       V_L_per_kg: row.v_l_per_kg,
-      label_dose_range_mg:
+      studied_dose_range_mg:
         row.dose_min_mg != null && row.dose_max_mg != null
           ? [row.dose_min_mg, row.dose_max_mg]
           : null,

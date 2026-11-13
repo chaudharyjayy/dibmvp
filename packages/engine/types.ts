@@ -19,7 +19,7 @@ export interface SimResult {
   cmaxMgPerL: number;
   tmaxH: number;
   timeToClearH: number | null;
-  /** Non-fatal warnings, e.g. doses outside the label range. */
+  /** Non-fatal warnings, e.g. doses outside the range the source studied. */
   warnings: string[];
 }
 
@@ -44,7 +44,7 @@ export interface Drug {
   /** Two-compartment rate constants (1/h), optional — TRD extension. */
   k12?: number;
   k21?: number;
-  label_dose_range_mg: [number, number] | null;
+  studied_dose_range_mg: [number, number] | null;
   sources: string[];
   notes: string;
 }

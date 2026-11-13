@@ -14,7 +14,7 @@ export const fixtureDrug: Drug = {
   F: 1.0, // TEST FIXTURE value
   V_L_per_kg: 5.0, // TEST FIXTURE value (L/kg)
   CL_L_per_h_per_kg: 0.7, // TEST FIXTURE value (L/h/kg) -> ke = CL/V = 0.14 /h
-  label_dose_range_mg: [0, 500],
+  studied_dose_range_mg: [0, 500],
   sources: [],
   notes: 'TEST FIXTURE ONLY — placeholder parameters, not sourced',
 };
@@ -29,7 +29,7 @@ export const fixtureDrugEqualRates: Drug = {
   F: 1.0, // TEST FIXTURE value
   V_L_per_kg: 5.0, // TEST FIXTURE value
   CL_L_per_h_per_kg: 0.7, // TEST FIXTURE value -> ke = 0.14 /h == ka
-  label_dose_range_mg: [0, 500],
+  studied_dose_range_mg: [0, 500],
   sources: [],
   notes: 'TEST FIXTURE ONLY — placeholder parameters, not sourced',
 };

@@ -25,8 +25,6 @@ const defaultRoot = path.resolve(scriptDir, '..');
 
 /** Directories scanned under the repo root. */
 export const SCAN_DIRS = ['packages', 'api', 'data', 'supabase', 'apps', 'docs'];
-/** Root-level files scanned. */
-export const ROOT_FILES = ['README.md', 'REVIEW.md'];
 /** Files allowed to quote banned phrases (review artifacts only). */
 export const ALLOWED_FILES = ['REVIEW.md', 'docs/REVIEW-PACKET.md'];
 
@@ -92,9 +90,12 @@ export function scan(root, phrases = loadPhrases(root)) {
   };
 
   for (const d of SCAN_DIRS) walk(path.join(root, d));
-  for (const f of ROOT_FILES) {
-    const full = path.join(root, f);
-    if (fs.existsSync(full)) checkFile(full);
+  for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+    if (e.isFile() && e.name.endsWith('.md')) {
+      // All root markdown is copy; the earlier README/REVIEW-only sweep
+      // missed new files at the root.
+      if (!ALLOWED_FILES.includes(e.name)) checkFile(path.join(root, e.name));
+    }
   }
   return violations;
 }
