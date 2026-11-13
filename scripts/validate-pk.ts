@@ -130,6 +130,28 @@ function fetchApprovedLocal(): Drug[] {
 
 const pct = (sim: number, pub: number) => Math.abs((sim - pub) / pub) * 100;
 
+/**
+ * Local simulation override for the proposed-but-unapproved lag parameter.
+ * `npm run validate:pk -- --tlag ibuprofen=0.112` applies a hypothetical
+ * tlag_h to that drug for THIS run only — it writes nothing, and the
+ * override is printed loudly. Owner approves tlag_h before the database
+ * carries it.
+ */
+function parseTlagOverrides(argv: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  const pairs = argv.filter((a) => a.startsWith('--tlag='));
+  for (const pair of pairs) {
+    const [id, raw] = pair.slice('--tlag='.length).split('=');
+    const value = Number(raw);
+    if (!id || raw == null || !Number.isFinite(value) || value < 0) {
+      console.error(`validate-pk: --tlag expects "drugId=hours" (got "${pair}")`);
+      process.exit(1);
+    }
+    out.set(id, value);
+  }
+  return out;
+}
+
 async function main() {
   let approved: Drug[];
   try {
@@ -141,12 +163,20 @@ async function main() {
     console.log(`approved rows from data/pk-review.csv: ${approved.length}`);
   }
 
+  const tlagOverrides = parseTlagOverrides(process.argv.slice(2));
+  if (tlagOverrides.size > 0) {
+    console.log(`\nLOCAL SIMULATION ONLY — hypothetical tlag_h, not written anywhere:`);
+    for (const [id, h] of tlagOverrides) console.log(`  ${id}: tlag_h = ${h} h`);
+  }
   const validation = loadValidationFile();
   const refs = new Map(validation.references.map((r) => [r.drug_id, r]));
 
   let failures = 0;
   const table: string[] = [];
-  for (const drug of approved) {
+  for (let drug of approved) {
+    if (tlagOverrides.has(drug.id)) {
+      drug = { ...drug, tlag_h: tlagOverrides.get(drug.id) };
+    }
     const ref = refs.get(drug.id);
     if (!ref || (ref.cmax_mg_per_l == null && ref.tmax_h == null)) {
       table.push(`${drug.id.padEnd(28)} no published reference — UNVALIDATED`);

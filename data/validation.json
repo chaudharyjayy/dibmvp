@@ -1,5 +1,5 @@
 {
-  "_comment": "Published reference values for scripts/validate-pk.ts. Every entry cites the sentence it came from. Rows may carry Cmax or tmax alone — the gate applies per metric and flags what is missing. 'no published reference' is an honest outcome, not a gap to fill.",
+  "_comment": "Published reference values for scripts/validate-pk.ts. Every entry cites the sentence it came from. Rows may carry Cmax or tmax alone \u2014 the gate applies per metric and flags what is missing. 'no published reference' is an honest outcome, not a gap to fill.",
   "weightKgReference": 70,
   "cmaxErrorFailFraction": 0.25,
   "tmaxErrorFailFraction": 0.25,
@@ -8,10 +8,10 @@
       "drug_id": "acetaminophen",
       "reference_dose_mg": 1000,
       "cmax_mg_per_l": 14.90716,
-      "cmax_note": "observed mean ± SD 6255.10 ng/mL; treatment E (FDC oral, 1000 mg acetaminophen + 300 mg ibuprofen); converted ÷1000 to mg/L",
-      "tmax_h": null,
+      "cmax_note": "observed mean \u00b1 SD 6255.10 ng/mL; treatment E (FDC oral, 1000 mg acetaminophen + 300 mg ibuprofen); converted \u00f71000 to mg/L",
+      "tmax_h": 0.75,
       "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4579261/",
-      "source_quote": "C max (ng/mL) | 26,709.57 ± 5814.74 | 26,236.06 ± 5430.52 | 12,880.39 ± 2553.15 | 14,907.16 ± 6255.10",
+      "source_quote": "C max (ng/mL) | 26,709.57 \u00b1 5814.74 | 26,236.06 \u00b1 5430.52 | 12,880.39 \u00b1 2553.15 | 14,907.16 \u00b1 6255.10",
       "source_title": "Pharmacokinetics and Bioavailability of a Fixed-Dose Combination of Ibuprofen and Paracetamol after Intravenous and Oral Administration (Clin Drug Investig 2015;35:625-632)",
       "kind": "observed-in-combination",
       "citation_pack": [
@@ -19,16 +19,17 @@
           "publisher_values": "Population-model predicted (fasted tablet, 1000 mg): Cmax 12.8 mg/L (95% PI 6.76-24.2), tmax 0.61 h (0.26-1.24)",
           "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9232434/"
         }
-      ]
+      ],
+      "tmax_note": "DailyMed label \u2014 Combogesic (setid f863558f-2a44-41f8-a6b7-271851d4c2ff): 'peak plasma concentration following the administration of three COMBOGESIC tablets occurs at approximately 45 minutes and 1 hour 15 minutes after administration for acetaminophen and ibuprofen, respectively, under fasting condition.' Reviewed OpenCode source review, 2026-11-13."
     },
     {
       "drug_id": "ibuprofen",
       "reference_dose_mg": 300,
       "cmax_mg_per_l": 19.63738,
-      "cmax_note": "observed mean ± SD 5178.29 ng/mL; treatment E (FDC oral, same combination product); converted ÷1000 to mg/L",
-      "tmax_h": null,
+      "cmax_note": "observed mean \u00b1 SD 5178.29 ng/mL; treatment E (FDC oral, same combination product); converted \u00f71000 to mg/L",
+      "tmax_h": 0.79,
       "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4579261/",
-      "source_quote": "C max (ng/mL) | 39,506.69 ± 6874.06 | 40,292.97 ± 7460.04 | 20,352.05 ± 3090.87 | 19,637.38 ± 5178.29",
+      "source_quote": "C max (ng/mL) | 39,506.69 \u00b1 6874.06 | 40,292.97 \u00b1 7460.04 | 20,352.05 \u00b1 3090.87 | 19,637.38 \u00b1 5178.29",
       "source_title": "Pharmacokinetics and Bioavailability of a Fixed-Dose Combination of Ibuprofen and Paracetamol after Intravenous and Oral Administration (Clin Drug Investig 2015;35:625-632)",
       "kind": "observed-in-combination",
       "citation_pack": [
@@ -36,7 +37,8 @@
           "publisher_values": "Population-model predicted (fasted tablet, 300 mg): Cmax 24.1 mg/L (95% PI 13.3-40.8), tmax 0.94 h (0.48-1.67)",
           "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9232434/"
         }
-      ]
+      ],
+      "tmax_note": "DailyMed label \u2014 ibuprofen suspension (setid dda7645f-1666-4c1f-b974-01add2ea79ac): table legend 'T max (h) 0.79 (69%) 0.97 (57%)'. The cited excerpt does not label the columns; 0.79 accepted as recorded in data/pk-parameters.csv by OpenCode source review, 2026-11-13 \u2014 which column the value belongs to is not legible from the excerpt. Kept with this caveat: do not read 0.79 as a fasted-tablet reference."
     },
     {
       "drug_id": "amoxicillin",
@@ -58,7 +60,7 @@
       "source_quote": null,
       "source_title": null,
       "kind": "no published reference",
-      "note": "Tran 2017 (PMID 29018999) reports NLME parameters (ka 0.860/h, apparent CL/F 11.1 L/h, apparent V/F 81 L) but prints no observed or predicted Cmax or tmax in the abstract; not located in the accessible full text. Do not fill from memory."
+      "note": "Tran 2017 (PMID 29018999) reports NLME parameters (ka 0.860/h, apparent CL/F 11.1 L/h, apparent V/F 81 L) but prints no observed or predicted Cmax or tmax in the abstract; not located in the accessible full text. Do not fill from memory. Label sweep (9d6def7) recorded t_max_h 0.75/0.79 for acetaminophen/ibuprofen; gabapentin tmax still not published in its source \u2014 unchanged."
     },
     {
       "drug_id": "caffeine",

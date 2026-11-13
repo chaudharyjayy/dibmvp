@@ -102,10 +102,15 @@ export function simulate(input: SimInput): SimResult {
   const ke = CL / V; // 1/h
 
   // ---- integration --------------------------------------------------------
+  const lag = drug.tlag_h ?? 0;
+  if (!Number.isFinite(lag) || lag < 0) {
+    throw new Error('simulate: tlag_h must be a finite number >= 0');
+  }
   const sorted: DoseEvent[] = [...doses].sort((a, b) => a.timeH - b.timeH);
-  // Doses outside the window are dropped with a warning rather than throwing:
+  // A dose reaches the gut at (dose time + lag). Doses whose delayed peak still
+  // ... outside the window are dropped with a warning rather than throwing:
   // shrinking the window in the UI used to surface "internal error" verbatim.
-  const applicable = sorted.filter((d) => d.timeH <= tEndH + 1e-12);
+  const applicable = sorted.filter((d) => d.timeH + lag <= tEndH + 1e-12);
   for (const d of sorted.slice(applicable.length)) {
     warnings.push(
       `A dose of ${d.doseMg} mg at t=${d.timeH} h is outside the simulated window (0–${tEndH} h) and was not applied.`
@@ -130,7 +135,7 @@ export function simulate(input: SimInput): SimResult {
   };
 
   const pushDosesAtOrBefore = (t: number) => {
-    while (doseIdx < applicable.length && applicable[doseIdx].timeH <= t + 1e-12) {
+    while (doseIdx < applicable.length && applicable[doseIdx].timeH + lag <= t + 1e-12) {
       Ag += applicable[doseIdx].doseMg;
       doseIdx++;
     }

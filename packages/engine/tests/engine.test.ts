@@ -71,6 +71,75 @@ describe('linear superposition (multi-dose)', () => {
   });
 });
 
+describe('absorption lag (tlag_h)', () => {
+  const lagged = { ...fixtureDrug, tlag_h: 1.5 };
+  const shiftedDose = [{ drugId: 'fixture-drug', doseMg: 100, timeH: 1.5 }];
+
+  it('with tlag_h absent or 0, output is identical to the unlagged baseline', () => {
+    const baseline = run(fixtureDrug, singleDose);
+    const zeroLag = run({ ...fixtureDrug, tlag_h: 0 }, singleDose);
+    expect(zeroLag.tH).toEqual(baseline.tH);
+    expect(zeroLag.gutMg).toEqual(baseline.gutMg);
+    expect(zeroLag.bodyMg).toEqual(baseline.bodyMg);
+    expect(zeroLag.concMgPerL).toEqual(baseline.concMgPerL);
+    expect(zeroLag.eliminationMgPerH).toEqual(baseline.eliminationMgPerH);
+    expect(zeroLag.cmaxMgPerL).toBe(baseline.cmaxMgPerL);
+    expect(zeroLag.tmaxH).toBe(baseline.tmaxH);
+    expect(zeroLag.timeToClearH).toBe(baseline.timeToClearH);
+  });
+
+  it('with tlag_h set, the run equals the same drug with the dose shifted by the lag', () => {
+    const delayed = run(lagged, singleDose);
+    const shifted = run(fixtureDrug, shiftedDose);
+    expect(delayed.gutMg).toEqual(shifted.gutMg);
+    expect(delayed.bodyMg).toEqual(shifted.bodyMg);
+    expect(delayed.concMgPerL).toEqual(shifted.concMgPerL);
+    expect(delayed.eliminationMgPerH).toEqual(shifted.eliminationMgPerH);
+    expect(delayed.cmaxMgPerL).toBeCloseTo(shifted.cmaxMgPerL, 12);
+    expect(delayed.tmaxH).toBeCloseTo(shifted.tmaxH, 10);
+  });
+
+  it('holds mass at zero before the dose reaches the gut', () => {
+    const res = run(lagged, singleDose, 6, 0.05);
+    for (let i = 0; i < res.tH.length; i++) {
+      if (res.tH[i] < 1.5) {
+        expect(res.gutMg[i]).toBe(0);
+        expect(res.bodyMg[i]).toBe(0);
+        expect(res.concMgPerL[i]).toBe(0);
+        expect(res.eliminationMgPerH[i]).toBe(0);
+      }
+    }
+    // By t = 6 h, the gut holds e^{-1/h * 4.5 h} * 100 mg ≈ 1.11 mg (a fact of the ka value, not an error).
+    expect(res.gutMg[res.gutMg.length - 1]).toBeLessThan(1.5);
+  });
+
+  it('tmax shifts by exactly tlag_h at grid resolution', () => {
+    const base = run(fixtureDrug, singleDose).tmaxH;
+    const delayed = run(lagged, singleDose).tmaxH;
+    expect(Math.abs(delayed - base - 1.5)).toBeLessThanOrEqual(0.05);
+  });
+
+  it('mass balance holds with a lag', () => {
+    const res = run(lagged, singleDose, 24, 0.02);
+    const cumElim = res.eliminationMgPerH.reduce(
+      (acc, r, i) => (i > 0 ? acc + r * (res.tH[i] - res.tH[i - 1]) : acc),
+      0
+    );
+    const gutFinal = res.gutMg[res.gutMg.length - 1];
+    const bodyFinal = res.bodyMg[res.bodyMg.length - 1];
+    expect(gutFinal).toBeCloseTo(0, 1);
+    expect(gutFinal + bodyFinal + cumElim).toBeGreaterThan(99);
+    expect(gutFinal + bodyFinal + cumElim).toBeLessThanOrEqual(102);
+  });
+
+  it('simulate() agrees with closedFormSingleDose() when tlag_h is set', () => {
+    const numeric = run(lagged, singleDose, 24, 0.05);
+    const analytic = closedFormSingleDose({ profile, drug: lagged, doses: singleDose, tEndH: 24, dtH: 0.05 });
+    expect(meanAbsRelErr(numeric.concMgPerL, analytic.concMgPerL)).toBeLessThan(0.01);
+    expect(numeric.tmaxH).toBeCloseTo(analytic.tmaxH, 1);
+  });
+});
+
 describe('result invariants & known-case metrics', () => {
   it('concentration and amounts are never negative', () => {
     const res = run(fixtureDrug, singleDose);

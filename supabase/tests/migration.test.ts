@@ -8,9 +8,10 @@ const migration = readFileSync(join(repoRoot, 'supabase', 'migrations', '0001_in
 const sqlChecks = readFileSync(join(repoRoot, 'supabase', 'tests', 'rls_checks.sql'), 'utf8');
 
 function walk(dir: string): string[] {
+  const SKIP = new Set(['node_modules', '.git', '.next', 'out', 'dist', '.vercel', 'coverage', 'build']);
   const out: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.next') continue;
+    if (SKIP.has(entry.name)) continue; // build output; scanned on the source, never on artefacts
     const full = join(dir, entry.name);
     if (statSync(full).isDirectory()) out.push(...walk(full));
     else out.push(full);
