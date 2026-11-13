@@ -44,6 +44,11 @@ export interface Drug {
   /** Two-compartment rate constants (1/h), optional — TRD extension. */
   k12?: number;
   k21?: number;
+  /**
+   * Absorption lag time (h), optional — from a cited source only.
+   * A dose reaches the gut at (dose time + tlag_h); default 0.
+   */
+  tlag_h?: number;
   studied_dose_range_mg: [number, number] | null;
   sources: string[];
   notes: string;

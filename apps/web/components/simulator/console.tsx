@@ -23,6 +23,7 @@ import { CONDITIONS } from "./condition";
 import { parsePrescription } from "./prescription";
 import { getApprovedPk, searchCatalogue } from "@/lib/catalogue";
 import type { DrugParameterCitation } from "@dib/data-client";
+import { isValidated } from "@/lib/validation-status";
 
 export type DoseRow = {
   timeH: number;
@@ -662,6 +663,11 @@ function DrugCard({
         <div className="min-w-0">
           <p className="truncate text-[14px] font-medium text-ink">{drug.name}</p>
           <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">{rangeHint}</p>
+          {!isValidated(drug.drugId) ? (
+            <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-amber-400/80">
+              Not validated against a published curve
+            </p>
+          ) : null}
         </div>
         <button
           type="button"

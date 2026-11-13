@@ -36,6 +36,10 @@ export function closedFormSingleDose(input: SimInput, dose?: DoseEvent): SimResu
   const F = drug.F ?? 1;
   const V = drug.V_L_per_kg * profile.weightKg; // L
   const ke = (drug.CL_L_per_h_per_kg * profile.weightKg) / V; // 1/h
+  const tlag = drug.tlag_h ?? 0;
+  if (!Number.isFinite(tlag) || tlag < 0) {
+    throw new Error('closedFormSingleDose: tlag_h must be a finite number >= 0');
+  }
 
   const tOut: number[] = [];
   const gutOut: number[] = [];
@@ -47,7 +51,7 @@ export function closedFormSingleDose(input: SimInput, dose?: DoseEvent): SimResu
   const n = Math.round(tEndH / dt);
   for (let i = 0; i <= n; i++) {
     const t = i * dt;
-    const d = t - event.timeH; // Δt since dose
+    const d = t - (event.timeH + tlag); // Δt since the dose reaches the gut
     let gut: number;
     let amt: number;
     if (d < 0) {
