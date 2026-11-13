@@ -31,6 +31,7 @@ import type { DialHandle } from "./dial-strip";
 import { DIAL_HOURS } from "./dial";
 import { EASE_OUT } from "./easing";
 import FigurePanel from "./figure-panel";
+import HudReadout from "./hud-readout";
 import type { FigureScene } from "./figure-scene";
 import { LOAD, h1Style, riseStyle } from "./load";
 import {
@@ -73,6 +74,7 @@ export default function Hero() {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const figureRef = useRef<HTMLDivElement | null>(null);
   const scaleRef = useRef<HTMLElement | null>(null);
   /** True below 768px: the figure is already centred, so it must not slide. */
@@ -85,6 +87,8 @@ export default function Hero() {
 
   const [phase, setPhase] = useState(0);
   const [atEnd, setAtEnd] = useState(false);
+  /** The live scene, for the side readout. */
+  const [scene, setScene] = useState<FigureScene | null>(null);
   const phaseRef = useRef(0);
   const endRef = useRef(false);
 
@@ -95,6 +99,7 @@ export default function Hero() {
     sceneRef.current = scene;
     scaleRef.current =
       figureRef.current?.querySelector<HTMLElement>("[data-figure-canvas]") ?? null;
+    setScene(scene ?? null);
   }, []);
 
   const handleDial = useCallback((handle: DialHandle | null) => {
@@ -112,13 +117,15 @@ export default function Hero() {
     const measure = () => {
       const wide = window.matchMedia(DESKTOP).matches;
       compactRef.current = !wide;
-      geomRef.current = wide
-        ? {
-            dx: (stage.clientWidth - layer.offsetWidth) / 2 - layer.offsetLeft,
-            dy: (stage.clientHeight - layer.offsetHeight) / 2 - layer.offsetTop,
-          }
-        : // Already full-bleed and centred; a slide would push it over the dial.
-          { dx: 0, dy: 0 };
+      const threeCol = window.matchMedia("(min-width: 1280px)").matches;
+      geomRef.current =
+        wide && !threeCol
+          ? {
+              dx: (stage.clientWidth - layer.offsetWidth) / 2 - layer.offsetLeft,
+              dy: (stage.clientHeight - layer.offsetHeight) / 2 - layer.offsetTop,
+            }
+          : // Already centred; a slide would wander across the panels.
+            { dx: 0, dy: 0 };
     };
 
     measure();
@@ -188,14 +195,17 @@ export default function Hero() {
          the lift, the slide and the scale are decorative parallax. */
       const still = reduced.matches;
       const fade = clamp01(p / P_FADE_END);
-      if (textRef.current) {
-        textRef.current.style.opacity = String(1 - fade);
-        textRef.current.style.transform = `translate3d(0, ${
+      /* Both copies fade: the flow copy shows below xl, the panel at xl.
+         Only one is visible at a time. */
+      for (const node of [textRef.current, panelRef.current]) {
+        if (!node) continue;
+        node.style.opacity = String(1 - fade);
+        node.style.transform = `translate3d(0, ${
           still ? 0 : (-24 * fade).toFixed(2)
         }px, 0)`;
         // Once it is invisible it must also be unclickable and unreachable by
         // Tab; inert does both without a second disabled state to keep in sync.
-        textRef.current.inert = fade > 0.5;
+        node.inert = fade > 0.5;
       }
 
       const slide = still ? 0 : EASE_OUT(fade);
@@ -280,7 +290,8 @@ export default function Hero() {
         <div
           ref={textRef}
           data-hero-text
-          className="relative z-10 px-5 pb-12 pt-[88px] will-change-transform md:absolute md:left-12 md:top-24 md:w-[min(592px,42vw)] md:px-0 md:pb-0 md:pt-0"
+          data-hero-copy="flow"
+          className="relative z-10 px-5 pb-12 pt-[88px] will-change-transform md:absolute md:left-12 md:top-24 md:w-[min(592px,42vw)] md:px-0 md:pb-0 md:pt-0 xl:hidden"
         >
           <h1 className={`text-ink ${type.display}`}>
             {H1_LINES.map((line, index) => (
@@ -334,10 +345,70 @@ export default function Hero() {
               stays clear of it. */}
           <div className="sticky top-0 z-[1] h-[100svh] w-full overflow-hidden">
             <div ref={stageRef} className="relative h-full w-full">
+              {/* The stage behind the figure: an aura and an orbit ring, both
+                  static art drawn in CSS, with the figure lit inside them. */}
+              <div aria-hidden="true" className="absolute inset-0 hidden xl:block">
+                <div className="hud-aura" />
+                <div className="hud-orbit" />
+              </div>
+
+              {/* The left HUD column: the same words, framed as a console panel,
+                  visible at xl only (unframed copy shows below xl). */}
               <div
+                ref={panelRef}
+                data-hero-text
+                data-hero-copy="panel"
+                className="absolute left-6 top-1/2 z-10 hidden w-[340px] -translate-y-1/2 will-change-transform xl:block"
+              >
+                <div className="hud-panel px-5 py-5">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-3">
+                    DRUG-IN-BODY <span className="text-brand-text">// LAB-01</span>
+                  </p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand-text">Educational simulator</p>
+                  <h1 className="mt-2 text-[36px] font-semibold leading-[40px] tracking-[-0.02em] text-ink">
+                    {H1_LINES.map((line, index) => (
+                      <span
+                        key={line}
+                        data-h1-line={index}
+                        style={h1Style(index)}
+                        className="landing-load block"
+                      >
+                        {line}
+                        {index < H1_LINES.length - 1 ? " " : ""}
+                      </span>
+                    ))}
+                  </h1>
+                  <p
+                    className={`landing-load mt-4 text-[15px] leading-[22px] text-ink-2`}
+                    style={riseStyle(LOAD.body.delay, LOAD.body.duration, LOAD.body.y)}
+                  >
+                    Set a profile and a dose, then move the time dial to watch an illustrative drug
+                    level rise and fall.
+                  </p>
+                  <div
+                    className="landing-load mt-5 flex flex-col items-start gap-4"
+                    style={riseStyle(LOAD.actions.delay, LOAD.actions.duration, LOAD.actions.y)}
+                  >
+                    <Link
+                      href="/simulator"
+                      className="flex h-11 w-full items-center justify-center rounded-[10px] bg-brand px-4 text-[15px] font-semibold text-[#04121a] transition-colors hover:bg-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                    >
+                      Try the simulator
+                    </Link>
+                    <Link
+                      href="/how-it-works"
+                      className="inline-flex min-h-6 items-center rounded-[10px] text-[13px] font-medium text-ink-2 transition-colors hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+                    >
+                      How does this work <span aria-hidden="true">→</span>
+                    </Link>
+                  </div>
+                </div>
+              </div>
+
+                            <div
                 ref={figureRef}
                 data-hero-figure
-                className="absolute inset-x-0 top-14 will-change-transform md:inset-x-auto md:right-12 md:top-24 md:w-[min(672px,42vw)]"
+                className="absolute inset-x-0 top-14 will-change-transform md:inset-x-auto md:right-12 md:top-24 md:w-[min(672px,42vw)] xl:!inset-0 xl:!right-auto xl:!top-0 xl:flex xl:h-full xl:w-full xl:items-center xl:justify-center"
               >
                 <div
                   data-load="figure"
@@ -346,6 +417,11 @@ export default function Hero() {
                 >
                   <FigurePanel onScene={handleScene} onDial={handleDial} autoplay={false} />
                 </div>
+              </div>
+
+              {/* The right HUD column: computed from the model's own curve. */}
+              <div className="absolute right-6 top-1/2 z-10 hidden -translate-y-1/2 xl:block">
+                <HudReadout scene={scene} active={phase > 0 || atEnd || true} />
               </div>
 
               <div className="pointer-events-none absolute inset-x-5 bottom-[56px] md:bottom-28 md:left-12 md:right-auto md:w-[min(592px,42vw)]">

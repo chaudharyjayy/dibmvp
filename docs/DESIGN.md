@@ -36,6 +36,28 @@ Rules that come with it:
 - No pure black: the base is a blue-black, because light text on true black
   halates.
 
+## Layout — the HUD console (xl and up)
+
+At 1280px and wider the pinned stage takes a three-column layout: the
+headline lives in a left console panel (`.hud-panel`), the figure stands
+centred inside a magenta aura and a slow dashed orbit ring, and the right
+column is a live readout panel whose numbers are computed from the model's
+own curve — organ bars (liver, lungs, heart, kidneys), the curve with its
+playhead at the dial's hour, the current hour and level, and the time to 5%
+of peak. Below xl the layout is unchanged from before: copy in flow on
+mobile, copy overlaying the stage on md, no readout column.
+
+The readout panel and the aura/orbit are the reference for the reference
+brief: a hologram of a body on a scanner bed, watched through an instrument.
+
+`.hud-panel` gives a panel the instrument-frame treatment: 1px hairline,
+translucent surface, two corner ticks in the accent. The aura is two
+radial-gradients; the orbit is a CSS ellipse with its outline.
+
+Two DOM copies of the copy exist, one visible per breakpoint — the flow copy
+for widths below xl, the panel copy at xl. Both share the load animation, and
+the rAF loop fades and inerts both together.
+
 ## The devices
 
 Three, and only three. The genre fails when every element wears the costume.

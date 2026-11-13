@@ -75,7 +75,7 @@ export default function FigurePanel({
 
   return (
     <div className={`w-full ${className}`}>
-      <div className="w-full md:ml-auto md:max-w-[672px]">
+      <div className="w-full md:ml-auto md:max-w-[672px] xl:mx-auto xl:ml-0 xl:max-w-[560px]">
         <div
           data-figure-canvas
           className="hud-corners relative h-[max(420px,50svh)] w-full overflow-hidden bg-page/40 md:h-[clamp(400px,calc(100svh-330px),700px)] md:rounded-[12px]"

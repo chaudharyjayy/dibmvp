@@ -111,6 +111,8 @@ export type FigureScene = {
   getBrainRegion(): { region: BrainRegion; x: number; y: number } | null;
   /** Whether the model is still loading, ready, or failed to load. */
   getStatus(): FigureStatus;
+  /** The time on the illustrative dial, in hours. */
+  getTime(): number;
   /** Try the model again after a failure. */
   reload(): void;
   getStats(): FigureStats;
@@ -853,6 +855,9 @@ export function createFigureScene(
     reload() {
       // Only a failed load is worth retrying; a loaded model is not re-fetched.
       if (status === "error") loadModel();
+    },
+    getTime() {
+      return currentTime;
     },
     getStats() {
       return stats;
