@@ -89,6 +89,86 @@ for commercial use. A bulk parameter dump from PK-DB is therefore not a free
 option. Read `reference/matthiaskoenig__pkdb/docs/terms-of-use.md` before
 importing anything from it.
 
+
+## One citation per value (migration 0003)
+
+`data/pk-review.csv` holds one row per drug: its four parameters, its dose
+range and one document. That is enough to say where a row came from, but not
+enough to say which document backs *which* number — and the numbers do not all
+come from the same place. So each value also has its own citation in
+`data/pk-parameters.csv`:
+
+```text
+drug_id,parameter,value,source_url,source_quote,source_title,source_kind,population,route,...
+```
+
+The database enforces it. `drug_pk_parameter` holds one row per parameter, and
+a trigger refuses to let a row be approved unless every value it carries has a
+citation row with the same value:
+
+```text
+cannot approve caffeine: no citation row with the same value for ka_per_h
+```
+
+The app reads `drug_pk_citations`, a view that only exposes an approved drug's
+citations — reviewer names and review dates stay on the service side, and a
+drug with no approved row has no citations to show.
+
+Where a review row's quote names several parameters at once ("clearance and
+volume of distribution were ..."), the importer uses that quote for each of
+them and marks it `paper` or `label`. Where the quote does not mention a
+parameter, the row's document is still recorded for it, marked `other` — the
+value is not unsourced, but the app can tell it apart from a value with its own
+sentence.
+
+### Licences matter here
+
+A value can be perfectly correct and still not be usable. The sources in play:
+
+| Source | Licence | Usable commercially |
+| --- | --- | --- |
+| openFDA (labels, NDC) | CC0 1.0 | yes |
+| DailyMed SPL (FDA labelling) | US government service | yes |
+| PubMed Central articles | **per article** — CC BY, CC BY-NC or CC BY-NC-ND | check the article |
+| StatPearls (NCBI Bookshelf) | CC BY-NC-ND 4.0 | **no** — non-commercial, no derivatives |
+| Europe PMC | API only; the article's own licence applies | as above |
+| MyChemDB | NCBI account and terms acceptance | as agreed |
+
+The rows currently approved cite PMC9232434 (CC BY-NC 4.0), PMC283758
+(CC BY-NC 4.0), a Springer article, PMID 428185 and PMID 6832208, plus
+PMC11593559 and PMC12954933 (both CC BY 4.0) and two DailyMed labels. **The
+NC-licensed rows need a decision before the app is used commercially.**
+
+### Checking that a citation still holds
+
+`npm run data:refresh` fetches every citation and looks for the quoted
+sentence in the document it points at. It distinguishes three outcomes:
+
+- the quote is there — the citation holds;
+- the quote is *not* there — the citation has rotted, and `--apply` demotes the
+  drug out of "reviewed" so the simulator stops serving a number nobody can
+  check;
+- the publisher would not serve the page — **unverifiable**, which never
+  demotes anything, because a blocked fetch says nothing about the citation.
+
+PubMed pages are behind a bot interstitial, so their abstracts are fetched from
+Europe PMC instead. A quote transcribed from a PDF is matched on substance
+rather than on characters: the same words with tidied punctuation still counts,
+a reworded sentence does not.
+
+The refresh also regenerates `data/drugs.json` from the database, so the
+repository's copy of the drug data tracks the backend instead of being
+maintained by hand, and it is scheduled daily:
+
+```bash
+npm run data:refresh              # verify citations, regenerate drugs.json
+npm run data:refresh -- --deep    # also re-fetch labels and re-extract candidates
+npm run data:refresh -- --apply   # demote drugs whose citation failed
+```
+
+The schedule is `scripts/data/refresh-pk.plist`, installed as
+`sh.aidevops.dib-pk-refresh` (a launchd agent, daily at 06:23).
+
 ## What this deliberately does not do
 
 - It does not fill a parameter because a screen looks empty.

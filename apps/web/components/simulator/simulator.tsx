@@ -42,8 +42,8 @@ import {
 } from "./condition";
 import type { FocusOrgan, SimulatorScene } from "./scene";
 import { drugFromPk, composeTreatment } from "@/lib/treatment";
-import { getApprovedPk } from "@/lib/catalogue";
-import type { DrugPkRow } from "@dib/data-client";
+import { getApprovedCitations, getApprovedPk } from "@/lib/catalogue";
+import type { DrugParameterCitation, DrugPkRow } from "@dib/data-client";
 import { topicForOrgan } from "@/lib/pubmed";
 
 type SexUi = "female" | "male" | "other";
@@ -180,6 +180,36 @@ export default function Simulator() {
       cancelled = true;
     };
   }, [active.drugs, pkRows]);
+
+  /**
+   * The citation behind each value of each medicine's parameters. This is what
+   * the console shows under a medicine, so a number can always be traced to the
+   * document that states it.
+   */
+  const [citations, setCitations] = React.useState<Map<string, DrugParameterCitation[]>>(
+    new Map()
+  );
+  React.useEffect(() => {
+    let cancelled = false;
+    // The console edits a draft treatment and the run uses an active one, so
+    // both are covered: a medicine's sources have to be there while it is
+    // being added, not only after the simulation is run.
+    const drugs = [...active.drugs, ...draft.drugs];
+    for (const drug of drugs) {
+      if (citations.has(drug.drugId)) continue;
+      getApprovedCitations(drug.drugId)
+        .then((list) => {
+          if (cancelled || !list || list === "error" || list === "unconfigured") return;
+          setCitations((prev) => new Map(prev).set(drug.drugId, list as DrugParameterCitation[]));
+        })
+        .catch(() => {
+          /* the parameters still run; only the sources line is missing */
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [active.drugs, draft.drugs, citations]);
 
   const condition = conditionById(active.conditionId);
   const organs = React.useMemo(() => organsFor(condition), [condition]);
@@ -603,6 +633,7 @@ export default function Simulator() {
               onChange={setDraft}
               onSubmit={run}
               error={simError}
+              citations={citations}
             />
 
             <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">

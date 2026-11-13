@@ -19,7 +19,14 @@ import {
   signOut as authSignOut,
 } from './auth';
 import { getProfile, saveProfile } from './profile';
-import { getDrugPk, searchDrugs, type DrugCatalogHit, type DrugPkRow } from './drugs';
+import {
+  getDrugCitations,
+  getDrugPk,
+  searchDrugs,
+  type DrugCatalogHit,
+  type DrugParameterCitation,
+  type DrugPkRow,
+} from './drugs';
 import {
   deleteAllMyData,
   deleteReport,
@@ -90,6 +97,8 @@ export interface DataClient {
   drugs: {
     searchDrugs(q: string, limit?: number): Promise<{ data: DrugCatalogHit[] | null; error: { code: string; message: string } | null }>;
     getDrugPk(drugId: string): Promise<{ data: DrugPkRow | null; error: { code: string; message: string } | null }>;
+    /** The citation behind each value of an approved drug's parameters. */
+    getDrugCitations(drugId: string): Promise<{ data: DrugParameterCitation[] | null; error: { code: string; message: string } | null }>;
   };
 }
 
@@ -163,6 +172,7 @@ export function createDataClient(args: {
     drugs: {
       searchDrugs: (q: string, limit?: number) => withData(() => searchDrugs(q, limit ?? 20, backend)),
       getDrugPk: (drugId: string) => withData(() => getDrugPk(drugId, backend)),
+      getDrugCitations: (drugId: string) => withData(() => getDrugCitations(drugId, backend)),
     },
   };
 }
@@ -196,6 +206,7 @@ function failedClient(error: { code: string; message: string }): DataClient {
     drugs: {
       searchDrugs: async () => err,
       getDrugPk: async () => err,
+      getDrugCitations: async () => err,
     },
   };
 }

@@ -10,7 +10,12 @@
  * - Nothing here writes. The service key never ships.
  */
 
-import { createDataClient, type DrugCatalogHit, type DrugPkRow } from "@dib/data-client";
+import {
+  createDataClient,
+  type DrugCatalogHit,
+  type DrugParameterCitation,
+  type DrugPkRow,
+} from "@dib/data-client";
 
 export type CatalogueHit = DrugCatalogHit;
 
@@ -48,6 +53,28 @@ export async function searchCatalogue(rawQuery: string, limit = 12): Promise<Cat
 }
 
 export type CataloguePk = DrugPkRow;
+
+/** The citation behind each value of a drug's parameters. */
+export type CatalogueCitation = DrugParameterCitation;
+
+/**
+ * The citations for one drug's parameters.
+ *
+ * The public view only exposes an approved drug's citations, so a drug with no
+ * approved row returns an empty list — which is the honest answer: a drug with
+ * no approved parameters has nothing to cite.
+ */
+export async function getApprovedCitations(
+  rawId: string
+): Promise<CatalogueCitation[] | "error" | "unconfigured"> {
+  const id = rawId.trim();
+  if (!/^[a-z0-9][a-z0-9 ()/+-]{0,99}$/i.test(id)) return "error";
+  const c = client();
+  if (!c) return "unconfigured";
+  const { data, error } = await c.drugs.getDrugCitations(id);
+  if (error) return "error";
+  return data ?? [];
+}
 
 export async function getApprovedPk(rawId: string): Promise<CataloguePk | null | "error" | "unconfigured"> {
   const id = rawId.trim();

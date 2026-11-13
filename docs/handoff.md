@@ -56,30 +56,29 @@ npm run check:drugs
 The importer fetches `https://download.open.fda.gov/drug/ndc/drug-ndc-0001-of-0001.json`
 directly, so a new machine does not need a local copy of the dump.
 
-**Parameters — cited, one row at a time, mostly not there yet.**
-`data/drugs.json` is the engine's short list; numeric PK fields stay `null`
-until a cited value exists. `data/interactions.json` is empty until pairs are
-hand-checked. `data/pk-review.csv` holds three **pending** rows for
-caffeine, acetaminophen and ibuprofen, each with a real DailyMed citation and
-the sentence the value came from (`data/pk-evidence.csv` has one row per
-parameter). A drug is simulatable only when all four parameters are approved,
-so nothing is simulatable yet.
+**Parameters — cited, one value at a time.**
+`data/pk-review.csv` and `data/pk-parameters.csv` hold the review sheets:
+one row per drug and one row per parameter, each with the URL and the quoted
+sentence that states that value. `public.drug_pk_parameter` holds the same in
+the database and a trigger refuses to approve a row whose values have no
+citation of their own; `public.drug_pk_citations` is the view the app reads.
+Six drugs are approved and simulatable, all three of the engine's included:
+acetaminophen (ka 3.47, F 0.86, CL 0.343, V 0.621 L/kg), ibuprofen (ka 1.54,
+F 0.94, CL 0.0541, V 0.15 L/kg) and caffeine (ka 19.8, F 0.99, CL 0.09,
+V 0.6 L/kg), plus amoxicillin, atenolol and gabapentin.
 
-The label pipeline that produced them: `npm run data:labels` fetches the FDA
-labels, `npm run data:pk:candidates` extracts the values, and
-`npm run data:compare` writes `data/coverage-report.md`. What the labels
-actually contain, measured: **no label states an absorption rate constant**,
-and most state a parameter or two — acetaminophen gives CL 0.27 L/h/kg and
-V 0.8 L/kg from its own table, ibuprofen gives V 0.12 L/kg but only CL/F
-(which is not clearance), caffeine gives V 0.6 L/kg. The missing values need
-PK-DB or a paper; PK-DB's terms require citing the PK-DB paper and each
-original study, and coauthorship above ten studies.
+`npm run data:refresh` re-fetches every citation and checks the quoted
+sentence is still in the document, then regenerates `data/drugs.json` from the
+database so the repository's copy of the drug data tracks the backend. It runs
+daily as the launchd agent `sh.aidevops.dib-pk-refresh`
+(`scripts/data/refresh-pk.plist`).
 
-`npm run data:pk:verify` fetches every PK row's citation and checks the
-quoted sentence is really in it. It demoted two rows whose citations pointed
-at DailyMed pages that do not exist and whose quotes were placeholders
-(reviewer names "John Smith" and "Jane Doe"); they are `pending` now and the
-simulator reads nothing from `drug_pk_public`.
+**Licences.** openFDA is CC0 and DailyMed is US government, so both are free
+to use. The papers are not uniform: some are CC BY, some CC BY-NC, and
+NCBI's StatPearls is CC BY-NC-ND, which forbids commercial use. The approved
+rows currently cite PMC9232434 and PMC283758 (both CC BY-NC) — those need a
+decision before the app is used commercially. `scripts/data/README.md` lists
+the licence of every source in play.
 
 **Local snapshot, not in the repo.** `/Users/Jayesh/drugs-schema/` holds the
 migration SQL, the import scripts, a catalogue preview and the 88 MB

@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CONDITIONS } from "./condition";
 import { parsePrescription } from "./prescription";
 import { getApprovedPk, searchCatalogue } from "@/lib/catalogue";
+import type { DrugParameterCitation } from "@dib/data-client";
 
 export type DoseRow = {
   timeH: number;
@@ -57,6 +58,8 @@ type ConsoleProps = {
   /** Shown under the form: what is wrong with the input, if anything. */
   error: string | null;
   disabled?: boolean;
+  /** The citation behind each value of each medicine's parameters. */
+  citations?: Map<string, DrugParameterCitation[]>;
 };
 
 const fieldLabel = "block font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3 mb-1.5";
@@ -84,6 +87,7 @@ export default function SimulatorConsole({
   onSubmit,
   error,
   disabled,
+  citations,
 }: ConsoleProps) {
   const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const set = useCallback(
@@ -212,6 +216,7 @@ export default function SimulatorConsole({
           {value.drugs.map((drug, index) => (
             <DrugCard
               key={drug.drugId}
+              citations={citations?.get(drug.drugId)}
               drug={drug}
               index={index}
               tEndH={value.tEndH}
@@ -514,6 +519,86 @@ function DrugSearch({
   );
 }
 
+
+/* ---- the sources behind a medicine's numbers -------------------------- */
+
+const PARAMETER_LABELS: Record<string, string> = {
+  ka_per_h: "absorption rate",
+  f_bioavailability: "bioavailability",
+  cl_l_per_h_per_kg: "clearance",
+  v_l_per_kg: "volume of distribution",
+  dose_min_mg: "dose range from",
+  dose_max_mg: "dose range to",
+  t_half_h: "half-life",
+};
+
+const PARAMETER_ORDER = [
+  "ka_per_h",
+  "f_bioavailability",
+  "cl_l_per_h_per_kg",
+  "v_l_per_kg",
+  "dose_min_mg",
+  "dose_max_mg",
+  "t_half_h",
+];
+
+/**
+ * Where each of a medicine's numbers came from.
+ *
+ * Every value is listed with the document that states it, so a number is never
+ * just a number. A citation that covers the whole row rather than one value
+ * says so, instead of pretending to be more specific than it is.
+ */
+function Sources({ citations }: { citations?: DrugParameterCitation[] }) {
+  const [open, setOpen] = useState(false);
+  if (!citations || citations.length === 0) return null;
+  const ordered = [...citations].sort(
+    (a, b) =>
+      PARAMETER_ORDER.indexOf(a.parameter) - PARAMETER_ORDER.indexOf(b.parameter)
+  );
+  const documents = new Set(citations.map((c) => c.sourceUrl));
+
+  return (
+    <div className="mt-2 border-t border-line pt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3 transition-colors duration-150 hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none"
+      >
+        {open ? "hide sources" : `sources (${documents.size} document${documents.size === 1 ? "" : "s"})`}
+      </button>
+      {open ? (
+        <ul className="mt-2 space-y-2">
+          {ordered.map((citation) => (
+            <li key={citation.parameter} className="text-[12px] leading-4 text-ink-2">
+              <span className="font-mono text-[11px] text-ink">
+                {PARAMETER_LABELS[citation.parameter] ?? citation.parameter}
+              </span>
+              {citation.value != null ? (
+                <span className="ml-1.5 font-mono text-[11px] text-brand-text">{citation.value}</span>
+              ) : null}
+              <span className="ml-1.5 text-ink-3">
+                {citation.sourceKind === "other" ? "cited at document level" : "· cited"}
+                {citation.population ? ` · ${citation.population}` : ""}
+              </span>
+              <a
+                href={citation.sourceUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="mt-0.5 block truncate text-ink-3 underline decoration-line-strong underline-offset-2 transition-colors duration-150 hover:text-brand-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              >
+                {citation.sourceTitle || citation.sourceUrl}
+              </a>
+              <q className="mt-0.5 block text-[11px] leading-4 text-ink-3"> {citation.sourceQuote} </q>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 /* ---- one medicine's card ------------------------------------------------- */
 
 function DrugCard({
@@ -523,6 +608,7 @@ function DrugCard({
   onPatch,
   onLoadScript,
   onRemove,
+  citations,
 }: {
   drug: DrugLine;
   index: number;
@@ -531,6 +617,8 @@ function DrugCard({
   /** Applies a parsed script: the parent widens the shared window if needed. */
   onLoadScript: (doses: DoseRow[], neededWindowH: number) => void;
   onRemove: () => void;
+  /** The citation behind each of this medicine's parameter values. */
+  citations?: DrugParameterCitation[];
 }) {
   const [script, setScript] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -595,6 +683,8 @@ function DrugCard({
           Load
         </button>
       </div>
+      <Sources citations={citations} />
+
       {note ? (
         <p className={`mt-1.5 text-[12px] leading-4 ${note.startsWith("Loaded") ? "text-ink-2" : "text-rose-400"}`}>
           {note}

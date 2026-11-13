@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily refresh of the pharmacokinetic layer.
+
+  What it does: re-fetches every citation behind an approved parameter and
+  checks that the quoted sentence is still in the document it points at. A
+  citation that has rotted demotes its drug out of "reviewed", so the simulator
+  stops serving a number nobody can check. It also regenerates
+  data/drugs.json from the database, so the repository's copy of the drug data
+  tracks the backend instead of being maintained by hand.
+
+  It is deliberately light: a few dozen HTTP requests a day. The deep pass --
+  re-fetching FDA labels and re-extracting candidates -- is a weekly job and
+  runs the same script with --deep.
+
+  Install:
+    cp scripts/data/refresh-pk.plist ~/Library/LaunchAgents/sh.aidevops.dib-pk-refresh.plist
+    launchctl load ~/Library/LaunchAgents/sh.aidevops.dib-pk-refresh.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/sh.aidevops.dib-pk-refresh.plist
+    rm ~/Library/LaunchAgents/sh.aidevops.dib-pk-refresh.plist
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>sh.aidevops.dib-pk-refresh</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/zsh</string>
+      <string>-lc</string>
+      <string>cd /Users/Jayesh/dib &amp;&amp; npm run data:refresh -- --apply &gt;&gt; /Users/Jayesh/.aidevops/logs/dib-pk-refresh.log 2&gt;&amp;1</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>6</integer>
+      <key>Minute</key>
+      <integer>23</integer>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/Jayesh/dib</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/Jayesh/.aidevops/logs/dib-pk-refresh.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/Jayesh/.aidevops/logs/dib-pk-refresh.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+  </dict>
+</plist>

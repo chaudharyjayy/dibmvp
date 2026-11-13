@@ -35,6 +35,63 @@ export type DrugPkRow = {
   sourceTitle: string | null;
 };
 
+export type DrugParameterCitation = {
+  /** Which parameter the value belongs to, e.g. 'ka_per_h'. */
+  parameter: string;
+  /** The value as stored. */
+  value: number | null;
+  sourceUrl: string;
+  sourceQuote: string;
+  sourceTitle: string | null;
+  /** 'label' | 'bookshelf' | 'pkdb' | 'paper' | 'other'. */
+  sourceKind: string | null;
+  /** Who the value applies to, e.g. 'adults'. */
+  population: string | null;
+  /** The route the source describes. */
+  route: string | null;
+};
+
+/**
+ * The citation behind each value of an approved drug's parameters.
+ *
+ * The public view only exposes the citations of approved drugs, so this
+ * returns an empty list for a drug that is not approved — which is the honest
+ * answer: a drug with no approved row has no parameters to cite.
+ */
+export async function getDrugCitations(
+  drugId: string,
+  backend: DataBackend
+): Promise<DataClientResult<DrugParameterCitation[]>> {
+  return wrap(async () => {
+    let res: { data: unknown; error: unknown };
+    try {
+      res = await backend
+        .from('drug_pk_citations')
+        .select(
+          'parameter,value,source_url,source_quote,source_title,source_kind,population,route'
+        )
+        .eq('drug_id', drugId);
+    } catch (e) {
+      return { data: null, error: mapSupabaseError(e) };
+    }
+    if (res.error) return { data: null, error: mapSupabaseError(res.error) };
+    const rows = Array.isArray(res.data) ? (res.data as Record<string, unknown>[]) : [];
+    return {
+      data: rows.map((row) => ({
+        parameter: typeof row.parameter === 'string' ? row.parameter : '',
+        value: typeof row.value === 'number' ? row.value : row.value == null ? null : Number(row.value),
+        sourceUrl: typeof row.source_url === 'string' ? row.source_url : '',
+        sourceQuote: typeof row.source_quote === 'string' ? row.source_quote : '',
+        sourceTitle: typeof row.source_title === 'string' ? row.source_title : null,
+        sourceKind: typeof row.source_kind === 'string' ? row.source_kind : null,
+        population: typeof row.population === 'string' ? row.population : null,
+        route: typeof row.route === 'string' ? row.route : null,
+      })),
+      error: null,
+    };
+  });
+}
+
 /** The search_drugs RPC's row shape, as PostgREST returns it. */
 type SearchRow = {
   id: unknown;

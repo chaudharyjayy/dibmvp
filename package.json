@@ -26,7 +26,8 @@
     "data:pk:candidates": "tsx scripts/data/extract-pk.ts",
     "data:interactions:candidates": "tsx scripts/data/extract-interactions.ts",
     "data:compare": "tsx scripts/data/compare-coverage.ts",
-    "data:pk:verify": "tsx scripts/data/withdraw-unverified-pk.ts"
+    "data:pk:verify": "tsx scripts/data/withdraw-unverified-pk.ts",
+    "data:refresh": "tsx scripts/data/refresh-pk.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
