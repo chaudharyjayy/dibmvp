@@ -9,8 +9,8 @@
     "CL_L_per_h_per_kg": 0.09,
     "V_L_per_kg": 0.6,
     "label_dose_range_mg": [
-      65,
-      325
+      100,
+      200
     ],
     "sources": [
       "https://pmc.ncbi.nlm.nih.gov/articles/PMC11593559/",
@@ -28,7 +28,7 @@
     "CL_L_per_h_per_kg": 0.343,
     "V_L_per_kg": 0.621,
     "label_dose_range_mg": [
-      975,
+      650,
       1000
     ],
     "sources": [
@@ -47,8 +47,8 @@
     "CL_L_per_h_per_kg": 0.0541,
     "V_L_per_kg": 0.15,
     "label_dose_range_mg": [
-      292,
-      300
+      300,
+      800
     ],
     "sources": [
       "https://pmc.ncbi.nlm.nih.gov/articles/PMC9232434/",

@@ -48,6 +48,7 @@ export const PK_PARAMETER_NAMES = [
   'dose_min_mg',
   'dose_max_mg',
   't_half_h',
+  't_max_h',
 ] as const;
 
 export type PkParameterName = (typeof PK_PARAMETER_NAMES)[number];

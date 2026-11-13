@@ -85,7 +85,12 @@ function looksLikeAnArticle(page: string): boolean {
     page.includes('pmc') ||
     page.includes('pharmacokinetic') ||
     page.includes('drug information') ||
-    page.includes('clinical pharmacology')
+    page.includes('clinical pharmacology') ||
+    // A Structured Product Label is the article here, even a short OTC one.
+    page.includes('structured product label') ||
+    page.includes('indications and usage') ||
+    page.includes('dosage and administration') ||
+    page.includes('active ingredient')
   );
 }
 

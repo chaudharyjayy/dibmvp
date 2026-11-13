@@ -537,6 +537,7 @@ const PARAMETER_LABELS: Record<string, string> = {
   dose_min_mg: "dose range from",
   dose_max_mg: "dose range to",
   t_half_h: "half-life",
+  t_max_h: "time to peak",
 };
 
 const PARAMETER_ORDER = [
@@ -547,6 +548,7 @@ const PARAMETER_ORDER = [
   "dose_min_mg",
   "dose_max_mg",
   "t_half_h",
+  "t_max_h",
 ];
 
 /**
