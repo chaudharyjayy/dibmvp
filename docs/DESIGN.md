@@ -152,6 +152,23 @@ reading. Neither one is a way to change the dose.
   predict anything. The narration says so where it matters, and the
   wording is pinned by a test.
 
+### The organ monitor
+
+- A second view of the right column, next to the walkthrough. It shows
+  every organ on one screen, live, at the hour the dial is on: a bar
+  normalised against the organ's own peak across the run, the value in the
+  model's units, and a trace per medicine.
+- Picking an organ shows it on its own: the body and everything else fades
+  out and the organ stays, framed to what is isolated — the brain alone,
+  the both-paired kidneys with their renal vessels, the heart with its
+  vessel tree, the lungs with their airway. Pick the organ again and the
+  body returns. The camera kicks closer for the isolation.
+- The gut is absent from the model, so it never isolates: it frames the
+  abdomen and its row says what it is. Every other row says, in plain
+  words, what its number is in the one-compartment model.
+- The isolation fades are eased in the render loop against shared shader
+  uniforms (uFade); the landing figure never sets them below 1.
+
 ### Rules
 
 - **No disease claims.** The simulator does not model diseases, does not

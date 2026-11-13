@@ -330,7 +330,7 @@ export default function OrganMonitor({ runs, hours, focus, onToggleFocus }: Orga
         <p className="mt-1 text-[11px] leading-4 text-ink-2">
           {focus
             ? metrics.find((m) => m.organ === focus)?.basis
-            : "Levels are normalised against their own peak across the run; the gut's bar falls as it is absorbed. Click an organ to move the camera to it."}
+            : "Levels are normalised against their own peak across the run; the gut's bar falls as it is absorbed. Click an organ to see it on its own — the rest of the body fades out — and again to bring the body back."}
         </p>
       </div>
     </div>

@@ -13,7 +13,7 @@
 
 import * as THREE from "three";
 import { loadAnatomyModel, type PartAnchor } from "@/components/anatomy/model";
-import { baseFor } from "@/components/anatomy/contract";
+import { baseFor, isolationOf, type IsolationGroup } from "@/components/anatomy/contract";
 import {
   BODY_FRAGMENT,
   BODY_VERTEX,
@@ -41,6 +41,12 @@ export type SimulatorScene = {
   setLevels(levels: Record<string, number>): void;
   /** Lights the organ the walkthrough is about. */
   setFocus(organ: FocusOrgan | null): void;
+  /**
+   * Shows one organ on its own: the body and everything else fades out,
+   * and that organ stays. The camera is framed by focusOrgan. Passing a
+   * gut — the model has no gut mesh — or null brings the body back.
+   */
+  setIsolation(organ: FocusOrgan | null): void;
   /** Stops the render loop while the canvas is out of sight. */
   setPaused(paused: boolean): void;
   /** Moves the camera to an organ, or back to the whole body for null. */
@@ -110,6 +116,7 @@ export function createSimulatorScene(
     uniforms: {
       uColor: { value: srgb(BODY_COLOR) },
       uScan: { value: 1.65 },
+      uFade: { value: 1 },
     },
     transparent: true,
     depthWrite: false,
@@ -124,6 +131,7 @@ export function createSimulatorScene(
       uFocus: { value: 0 },
       uLightDir: { value: directional.position.clone().normalize() },
       uLightIntensity: { value: directional.intensity },
+      uFade: { value: 1 },
     },
   });
 
@@ -145,6 +153,7 @@ export function createSimulatorScene(
         uTintMix: { value: 0.12 },
         uLightDir: { value: directional.position.clone().normalize() },
         uLightIntensity: { value: directional.intensity },
+        uFade: { value: 1 },
       },
     });
     organMaterials.set(name, material);
@@ -178,6 +187,69 @@ export function createSimulatorScene(
   // A slow drift so the model is not dead still, and so the glass catches
   // the light differently as the visitor watches.
   let drift = 0;
+
+  /** The organ shown on its own, or null for the whole body. */
+  let isolation: IsolationGroup | null = null;
+  /** Current and wanted fade for each visual group, eased per frame. */
+  const fades = { body: 1, brain: 1, heart: 1, lungs: 1, liver: 1, kidneys: 1 };
+  const fadeTargets = { ...fades };
+  /** The isolation asked for before the anatomy lands. */
+  let wantedIsolation: IsolationGroup | null = null;
+  /** Camera punch when an organ pops in, and the group's materials. */
+  let popBoost = 0;
+  const groupMaterials = new Map<IsolationGroup, THREE.ShaderMaterial[]>();
+  /** What each isolation group occupies, in the model's space. */
+  const isolationAnchors = new Map<IsolationGroup, { centre: THREE.Vector3; extent: number }>();
+  /** Whether the organ materials are in the isolating transparency state. */
+  let faded = false;
+
+  function fadeTargetsFor(organ: IsolationGroup | null): Record<string, number> {
+    const out: Record<string, number> = {
+      body: 1,
+      brain: 1,
+      heart: 1,
+      lungs: 1,
+      liver: 1,
+      kidneys: 1,
+    };
+    if (organ) {
+      for (const key of Object.keys(out)) out[key] = key === organ ? 1 : 0;
+    }
+    return out;
+  }
+
+  /** Applies the isolating transparency state (or restores the opaque one). */
+  function applyTransparency(active: boolean): void {
+    if (active === faded) return;
+    faded = active;
+    const organAndBrain = [brainMaterial, ...organMaterials.values()];
+    for (const material of organAndBrain) {
+      if (active) {
+        material.transparent = true;
+        material.depthWrite = false;
+      } else {
+        material.transparent = false;
+        material.depthWrite = true;
+      }
+    }
+  }
+
+  /** Aims the fades at the wanted isolation. */
+  function applyIsolation(organ: IsolationGroup | null): void {
+    isolation = organ;
+    Object.assign(fadeTargets, fadeTargetsFor(organ));
+    applyTransparency(organ !== null);
+    if (organ && !reducedMotion) popBoost = 1;
+  }
+
+  /** Set when the fades have settled back to fully opaque. */
+  function restoreIfSettled(): void {
+    if (faded) return;
+    for (const value of Object.values(fades)) {
+      if (value < 0.995) return;
+    }
+    for (const key of Object.keys(fades) as Array<keyof typeof fades>) fades[key] = 1;
+  }
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -293,6 +365,30 @@ export function createSimulatorScene(
       bodyMaterial.uniforms.uScan.value = 1.65 - phase * 3.3;
     }
 
+    // The isolation fades, in the same ease as the camera.
+    if (reducedMotion) {
+      Object.assign(fades, fadeTargets);
+    } else {
+      const fadeRate = 1 - Math.pow(0.0015, dt);
+      for (const key of Object.keys(fades) as Array<keyof typeof fades>) {
+        fades[key] += (fadeTargets[key] - fades[key]) * fadeRate;
+      }
+    }
+    bodyMaterial.uniforms.uFade.value = fades.body;
+    brainMaterial.uniforms.uFade.value = fades.brain;
+    for (const [group, materials] of groupMaterials) {
+      for (const material of materials) {
+        material.uniforms.uFade.value = fades[group];
+      }
+    }
+    // Back to fully opaque once the fades settle.
+    if (!faded) restoreIfSettled();
+    // The camera punch decays fast: the organ hops, the eye follows.
+    if (popBoost > 0) {
+      popBoost *= Math.pow(0.02, dt);
+      if (popBoost < 0.001) popBoost = 0;
+    }
+
     // The focus value drives the shader, so the organ brightens with the
     // camera rather than snapping ahead of it.
     for (const { id, material } of tinted) {
@@ -301,10 +397,11 @@ export function createSimulatorScene(
     }
     brainMaterial.uniforms.uFocus.value = wantedFocus === "brain" ? focusValue : 0;
 
+    const punch = 1 + 0.24 * popBoost;
     camera.position.set(
       target.x + Math.sin(drift) * 0.18,
       target.y + 0.1,
-      target.z + distance
+      target.z + distance * punch
     );
     camera.lookAt(target);
 
@@ -337,6 +434,38 @@ export function createSimulatorScene(
       anchors = loaded.anchors;
       tinted = loaded.tinted as typeof tinted;
       brainTargets = loaded.brainTargets;
+      // Frame the isolation around everything the isolation shows: a UNION
+      // box per visual group, from the nodes themselves.
+      isolationAnchors.clear();
+      const boxes = new Map<IsolationGroup, THREE.Box3>();
+      for (const [name, mesh] of loaded.meshes) {
+        const group = isolationOf(name);
+        if (!group) continue;
+        mesh.geometry.computeBoundingBox();
+        const box = mesh.geometry.boundingBox;
+        if (!box) continue;
+        const world = box.clone().applyMatrix4(mesh.matrixWorld);
+        const acc = boxes.get(group);
+        if (acc) acc.union(world);
+        else boxes.set(group, world);
+      }
+      for (const [group, box] of boxes) {
+        const size = box.getSize(new THREE.Vector3());
+        isolationAnchors.set(group, {
+          centre: box.getCenter(new THREE.Vector3()),
+          extent: Math.max(size.x, size.y, size.z),
+        });
+      }
+      // Bucket the organ materials by the visual group they isolate with,
+      // so the fade loop can reach each in one pass.
+      for (const [name, material] of organMaterials) {
+        const group = isolationOf(name);
+        if (!group) continue;
+        const list = groupMaterials.get(group);
+        if (list) list.push(material);
+        else groupMaterials.set(group, [material]);
+      }
+      if (wantedIsolation) applyIsolation(wantedIsolation);
       // The model has no digestive tract, so the gut has no mesh of its own.
       // The gut sits in front of the kidneys, so the camera frames the
       // abdomen there — and the narration says the gut itself is not in the
@@ -386,8 +515,16 @@ export function createSimulatorScene(
     } else {
       const anchor = anchors.get(organ);
       if (!anchor) return;
-      wantedTarget.copy(anchor.centre);
-      wantedDistance = frameDistance(anchor.radius);
+      const fit = isolation ? isolationAnchors.get(isolation) : undefined;
+      if (fit) {
+        // The isolation frames everything the isolation shows, not just the
+        // organ itself: the vessel tree or the airway come along.
+        wantedTarget.copy(fit.centre);
+        wantedDistance = Math.max(0.6, fit.extent * 2.8);
+      } else {
+        wantedTarget.copy(anchor.centre);
+        wantedDistance = frameDistance(anchor.radius);
+      }
     }
     if (immediate || reducedMotion) {
       target.copy(wantedTarget);
@@ -404,6 +541,19 @@ export function createSimulatorScene(
     setFocus(organ) {
       wantedFocus = organ;
       applyFocus(organ);
+    },
+
+    setIsolation(organ) {
+      const effective: IsolationGroup | null = organ && organ !== "gut" ? (organ as IsolationGroup) : null;
+      const changed = effective !== (isolation ?? null);
+      wantedIsolation = effective;
+      // The fades are eased in the frame loop; only kick if the anatomy
+      // is there, or aim it at the load. Re-frame so the organ fills the
+      // stage — or the whole body comes back.
+      if (ready) {
+        applyIsolation(effective);
+        if (changed) applyFraming(effective, false);
+      }
     },
 
     setPaused(next) {

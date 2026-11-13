@@ -307,6 +307,9 @@ export function createFigureScene(
       uColor: { value: srgb(COLORS.body) },
       // The height of the scan band in world units; the frame loop sweeps it.
       uScan: { value: 0.8 },
+      // The simulator fades the shell when one organ is isolated; the
+      // landing never does, so this stays at 1.
+      uFade: { value: 1 },
     },
     transparent: true,
     depthWrite: false,
@@ -332,6 +335,7 @@ export function createFigureScene(
         uTintMix: { value: 1 },
         uLightDir: { value: directional.position.clone().normalize() },
         uLightIntensity: { value: directional.intensity },
+        uFade: { value: 1 },
       },
     });
     disposables.push(material);
@@ -348,6 +352,7 @@ export function createFigureScene(
         uFocus: { value: 0 },
         uLightDir: { value: directional.position.clone().normalize() },
         uLightIntensity: { value: directional.intensity },
+        uFade: { value: 1 },
       },
     });
     disposables.push(material);

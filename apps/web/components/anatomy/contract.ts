@@ -64,6 +64,51 @@ export const GLB = {
   ],
 } as const;
 
+/**
+ * The visual group a node belongs to when one organ is shown on its own.
+ *
+ * This is a VISUAL grouping, deliberately not the tint contract (FOLLOW):
+ * the vessels tint with the blood, but when the liver or the kidneys are
+ * isolated they leave with the field. The brain is the brain; the airway
+ * belongs to the lungs; the renal hilum belongs to the kidneys; the rest of
+ * the vascular tree stays with the heart. The gut has no mesh — it is
+ * absent from the model — so it never appears here.
+ */
+export type IsolationGroup = "brain" | "heart" | "lungs" | "liver" | "kidneys";
+
+export function isolationOf(name: string): IsolationGroup | null {
+  if (isBrainMesh(name)) return "brain";
+  if (name === "Liver") return "liver";
+  if (name === "Lung_L" || name === "Lung_R") return "lungs";
+  if ((GLB.airway as readonly string[]).includes(name)) return "lungs";
+  if (
+    name === "Kidney_L" ||
+    name === "Kidney_R" ||
+    name.startsWith("RenalArtery_") ||
+    name.startsWith("RenalVein_")
+  ) {
+    return "kidneys";
+  }
+  if (
+    name === "Heart" ||
+    name === "Brachiocephalic" ||
+    name === "PulmonaryArtery" ||
+    name === "PulmonaryVein" ||
+    name.startsWith("Aorta_") ||
+    name.startsWith("Carotid_") ||
+    name.startsWith("Subclavian_") ||
+    name.startsWith("BrachioVein_") ||
+    name.startsWith("JugularVein_") ||
+    name.startsWith("VenaCava_") ||
+    name.startsWith("CommonIliac_") ||
+    name.startsWith("Coronary_") ||
+    name.startsWith("Cardiac_")
+  ) {
+    return "heart";
+  }
+  return null;
+}
+
 /** True for a node that is part of the brain. */
 export function isBrainMesh(name: string): boolean {
   if (GLB.brainExtras.includes(name as (typeof GLB.brainExtras)[number])) return true;

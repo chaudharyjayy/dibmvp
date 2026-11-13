@@ -23,6 +23,7 @@ export const BODY_VERTEX = /* glsl */ `
 export const BODY_FRAGMENT = /* glsl */ `
   uniform vec3 uColor;
   uniform float uScan;
+  uniform float uFade;
   varying vec3 vWorldNormal;
   varying vec3 vViewDir;
   varying float vWorldY;
@@ -41,7 +42,8 @@ export const BODY_FRAGMENT = /* glsl */ `
     // one horizontal band of light travelling down the body.
     float band = exp(-pow((vWorldY - uScan) * 6.5, 2.0));
     float alpha = edge * 0.85 + band * 0.12;
-    gl_FragColor = vec4(uColor * (0.85 + band * 1.5), alpha);
+    alpha *= uFade;
+    gl_FragColor = vec4(uColor * (0.85 + band * 1.5) * uFade, alpha);
   }
 `;
 
@@ -66,6 +68,7 @@ export const ORGAN_FRAGMENT = /* glsl */ `
   uniform float uTintMix;
   uniform vec3 uLightDir;
   uniform float uLightIntensity;
+  uniform float uFade;
   varying vec3 vNormalW;
   varying vec3 vViewDir;
   void main() {
@@ -89,7 +92,7 @@ export const ORGAN_FRAGMENT = /* glsl */ `
     // its own colour rather than adding the accent on top — a dark organ
     // lit only by the accent would turn blue and stop reading as tissue.
     colour = colour * (1.0 + focus * 0.5) + uTint * focus * 0.08;
-    gl_FragColor = vec4(colour, 1.0);
+    gl_FragColor = vec4(colour * uFade, uFade);
   }
 `;
 
@@ -113,6 +116,7 @@ export const BRAIN_FRAGMENT = /* glsl */ `
   uniform float uFocus;
   uniform vec3 uLightDir;
   uniform float uLightIntensity;
+  uniform float uFade;
   varying vec3 vNormalW;
   varying vec3 vViewDir;
   void main() {
@@ -123,6 +127,6 @@ export const BRAIN_FRAGMENT = /* glsl */ `
     vec3 lit = uBase * (0.62 + 0.34 * lambert * uLightIntensity + 0.12 * fill) * 1.35;
     float rim = pow(1.0 - abs(dot(n, normalize(vViewDir))), 2.4);
     lit += uTint * rim * (0.38 + focus * 0.7);
-    gl_FragColor = vec4(lit, 1.0);
+    gl_FragColor = vec4(lit * uFade, uFade);
   }
 `;

@@ -415,6 +415,17 @@ export default function Simulator() {
     scene?.setFocus(focusOrgan);
   }, [scene, focusOrgan]);
 
+  /**
+   * Isolation happens only in the monitor: the body fades out so the
+   * picked organ reads on its own. The walkthrough never hides the body —
+   * there the camera is the instrument. The gut has no mesh, so it never
+   * isolates.
+   */
+  const isolation = rightView === "monitor" && monitorFocus !== "gut" ? monitorFocus : null;
+  React.useEffect(() => {
+    scene?.setIsolation(isolation);
+  }, [scene, isolation]);
+
   React.useEffect(() => {
     scene?.setLevels(levels);
   }, [scene, levels]);
