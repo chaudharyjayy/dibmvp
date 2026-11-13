@@ -1,6 +1,7 @@
 /**
  * A treatment: one or more catalogue drugs, each simulated on its own
- * approved parameters, composed into one combined picture.
+ * approved parameters, shown on the same axes — never summed, because
+ * summing milligrams of different drugs is not a pharmacological quantity.
  *
  * What this file is and is not:
  *
@@ -8,11 +9,10 @@
  *   approved `drug_pk` row — absorption, bioavailability, clearance and
  *   volume are that drug's cited values, scaled by body weight exactly as
  *   the engine documents.
- * - The combined panel is an ADDITIVE EXPOSURE model: each drug's
- *   concentration series is summed. That is a deliberate simplification,
- *   not pharmacology — the model does not simulate interactions,
- *   competition for enzymes, or displacement. Every label that shows a
- *   combined number says so.
+ * - The panel and the walkthrough show each medicine's own curve and its
+ *   own numbers. There is no combined pharmacological quantity, and every
+ *   surface that shows the treatment says why: interactions are not
+ *   modelled and are not being claimed.
  * - A drug with no approved PK row is not simulated at all. There is no
  *   fallback to invented numbers; the caller has to say the drug is not
  *   simulatable.
@@ -20,6 +20,21 @@
 
 import type { Drug, SimResult } from "@dib/engine";
 import type { DrugPkRow } from "@dib/data-client";
+
+/** One curve colour per medicine, in the order medicines are added. */
+export const DRUG_COLORS = ["#38bdf8", "#f472b6", "#facc15", "#34d399", "#c084fc"] as const;
+
+/** One medicine's own engine run, labelled for the panel and the report. */
+export type MedicationRun = {
+  id: string;
+  name: string;
+  color: string;
+  result: SimResult;
+};
+
+/** The caption every multi-drug surface carries. */
+export const SEPARATE_CURVES_CAPTION =
+  "Each curve is modelled separately. Interactions are not modelled.";
 
 export type CatalogueDrug = {
   id: string;
@@ -49,66 +64,10 @@ export function drugFromPk(hit: CatalogueDrug, pk: DrugPkRow): Drug | null {
     F: pk.fBioavailability,
     CL_L_per_h_per_kg: pk.clLPerHPerKg,
     V_L_per_kg: pk.vLPerKg,
-    label_dose_range_mg:
+    studied_dose_range_mg:
       pk.doseMinMg != null && pk.doseMaxMg != null ? [pk.doseMinMg, pk.doseMaxMg] : null,
     sources: [pk.sourceUrl, pk.sourceTitle].filter((s): s is string => Boolean(s)),
     notes: "Parameters from the approved drug_pk row (cited).",
-  };
-}
-
-/**
- * Additive composition of several one-drug results: amounts sum (gut,
- * body, elimination), concentrations sum. Nothing is renormalised —
- * whatever each drug's volume of distribution does, stays its own.
- */
-export function composeTreatment(results: SimResult[]): SimResult | null {
-  if (results.length === 0) return null;
-  if (results.length === 1) return results[0];
-
-  const base = results[0];
-  const n = base.tH.length;
-  for (const r of results) {
-    if (r.tH.length !== n) {
-      throw new Error("composeTreatment: results must share one time grid");
-    }
-  }
-
-  const sum = (pick: (r: SimResult, i: number) => number) =>
-    Array.from({ length: n }, (_, i) => results.reduce((acc, r) => acc + pick(r, i), 0));
-
-  const conc = sum((r, i) => r.concMgPerL[i]);
-  let cmax = 0;
-  let tmax = 0;
-  conc.forEach((c, i) => {
-    if (c > cmax) {
-      cmax = c;
-      tmax = base.tH[i];
-    }
-  });
-
-  const elimination = sum((r, i) => r.eliminationMgPerH[i]);
-  const timeToClearH = (() => {
-    // Same heuristic the engine uses per drug: the first time after the
-    // combined Tmax where the combined concentration stays under 5% of the
-    // combined Cmax.
-    const tmaxIdx = conc.indexOf(Math.max(...conc));
-    const threshold = 0.05 * cmax;
-    for (let i = tmaxIdx + 1; i < n; i++) {
-      if (conc[i] < threshold) return base.tH[i];
-    }
-    return null;
-  })();
-
-  return {
-    tH: base.tH,
-    gutMg: sum((r, i) => r.gutMg[i]),
-    bodyMg: sum((r, i) => r.bodyMg[i]),
-    concMgPerL: conc,
-    eliminationMgPerH: elimination,
-    cmaxMgPerL: cmax,
-    tmaxH: tmax,
-    timeToClearH,
-    warnings: results.flatMap((r) => r.warnings),
   };
 }
 

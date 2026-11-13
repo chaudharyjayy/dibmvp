@@ -60,12 +60,12 @@ export function simulate(input: SimInput): SimResult {
   }
 
   const warnings: string[] = [];
-  if (drug.label_dose_range_mg) {
-    const [min, max] = drug.label_dose_range_mg as [number, number];
+  if (drug.studied_dose_range_mg) {
+    const [min, max] = drug.studied_dose_range_mg as [number, number];
     for (const d of doses) {
       if (d.doseMg < min || d.doseMg > max) {
         warnings.push(
-          `Dose ${d.doseMg} mg at t=${d.timeH} h is outside the label range ${min}–${max} mg for ${drug.name}.`
+          `Dose ${d.doseMg} mg at t=${d.timeH} h is outside the range the source studied ${min}–${max} mg for ${drug.name}.`
         );
       }
     }

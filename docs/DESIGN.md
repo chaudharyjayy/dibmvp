@@ -162,15 +162,20 @@ reading. Neither one is a way to change the dose.
   search box queries the openFDA-derived ingredient list through the
   `search_drugs` RPC; hits show their pharmacokinetic status, and a
   medicine is addable only when an approved, cited `drug_pk` row exists
-  (`pk sourced`). Anything else is disabled in place, showing *pk
+  (`author-verified`). Anything else is disabled in place, showing *pk
   partial* or *pk not sourced* — the panel never runs a drug on invented
   numbers.
 - One treatment holds at most five medicines. Each runs through the
-  engine on its own cited parameters; the combined panel is an additive
-  exposure model, labelled as such in the header and the saved summary.
-  The doses, the window and the saved report keep the per-medicine
-  structure.
-- The label range under each medicine's name comes from the approved
+  engine on its own cited parameters and is shown as its own curve with
+  its own colour; nothing is summed across drugs. Every multi-medicine
+  surface carries the caption: *Each curve is modelled separately.
+  Interactions are not modelled.*
+- A dose above the range the source studied is blocked outright with
+  "Outside the range this source studied. The model is not valid
+  here."; a dose below that range is allowed with a visible warning,
+  because linear extrapolation is usually tolerable but outside the
+  evidence. No dose is pre-filled.
+- The studied range under each medicine's name comes from the approved
   row's dose range, so the amount the visitor types can be compared with
   what the cited source studied.
 

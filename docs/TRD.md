@@ -70,7 +70,7 @@ Each drug is one JSON object in `data/drugs.json`. Values come from sources, nev
   "F": 0,
   "CL_L_per_h_per_kg": 0,
   "V_L_per_kg": 0,
-  "label_dose_range_mg": [0, 0],
+  "studied_dose_range_mg": [0, 0],
   "sources": ["pk-db study id", "drug label url"],
   "notes": ""
 }

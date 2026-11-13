@@ -41,7 +41,7 @@ import {
   organsFor,
 } from "./condition";
 import type { FocusOrgan, SimulatorScene } from "./scene";
-import { drugFromPk, composeTreatment } from "@/lib/treatment";
+import { drugFromPk, DRUG_COLORS, SEPARATE_CURVES_CAPTION, type MedicationRun } from "@/lib/treatment";
 import { getApprovedCitations, getApprovedPk } from "@/lib/catalogue";
 import type { DrugParameterCitation, DrugPkRow } from "@dib/data-client";
 import { topicForOrgan } from "@/lib/pubmed";
@@ -231,14 +231,14 @@ export default function Simulator() {
     [active.drugs],
   );
 
-  const { result, simError } = React.useMemo((): {
-    result: SimResult | null;
+  const { runs, simError } = React.useMemo((): {
+    runs: MedicationRun[] | null;
     simError: string | null;
   } => {
-    if (active.drugs.length === 0) return { result: null, simError: null };
+    if (active.drugs.length === 0) return { runs: null, simError: null };
     // Every medicine needs its approved row before anything runs.
     if (!active.drugs.every((d) => d.hasPk && pkRows.has(d.drugId))) {
-      return { result: null, simError: null };
+      return { runs: null, simError: null };
     }
     const profile: BodyProfile = {
       ageYears: active.ageYears,
@@ -246,8 +246,8 @@ export default function Simulator() {
       sex: toEngineSex(active.sex),
     };
     try {
-      const results: SimResult[] = [];
-      for (const line of active.drugs) {
+      const out: MedicationRun[] = [];
+      for (const [index, line] of active.drugs.entries()) {
         const pk = pkRows.get(line.drugId);
         if (!pk) continue;
         const drug = drugFromPk({ id: line.drugId, name: line.name }, pk);
@@ -257,64 +257,88 @@ export default function Simulator() {
           doseMg: r.doseMg,
           timeH: r.timeH,
         }));
-        results.push(
-          simulate({ profile, drug, doses, tEndH: active.tEndH, dtH: 0.05 })
-        );
+        out.push({
+          id: line.drugId,
+          name: line.name,
+          color: DRUG_COLORS[index % DRUG_COLORS.length],
+          result: simulate({ profile, drug, doses, tEndH: active.tEndH, dtH: 0.05 }),
+        });
       }
-      return { result: composeTreatment(results), simError: null };
+      return { runs: out.length > 0 ? out : null, simError: null };
     } catch (e) {
-      return { result: null, simError: e instanceof Error ? e.message : "simulation failed" };
+      return { runs: null, simError: e instanceof Error ? e.message : "simulation failed" };
     }
   }, [active, pkRows]);
+
+  const single = runs?.length === 1 ? runs[0] : null;
+  /** One engine summary per medicine — never one combined summary. */
+  const reports = React.useMemo(
+    () => (runs ?? []).map((r) => ({ run: r, report: buildReport(r.result) })),
+    [runs]
+  );
 
   /** The treatment's name for the header and the report title. */
   const treatmentLabel = React.useMemo(() => {
     if (active.drugs.length === 0) return "No medicine added";
     if (active.drugs.length === 1) return active.drugs[0].name;
-    return `${active.drugs.length} medicines — additive model`;
+    return `${active.drugs.length} medicines — modelled separately`;
   }, [active.drugs]);
 
-  const report = result ? buildReport(result) : null;
+  /** The engine's numbers at the hour the dial is on, per medicine. */
+  const breakdown = React.useMemo(
+    () =>
+      (runs ?? []).map((r) => ({
+        name: r.name,
+        color: r.color,
+        moment: momentAt(
+          r.result.tH,
+          r.result.gutMg,
+          r.result.bodyMg,
+          r.result.concMgPerL,
+          r.result.eliminationMgPerH,
+          hours
+        ),
+      })),
+    [runs, hours]
+  );
 
-  /** The engine's numbers at the hour the dial is on. */
-  const moment = React.useMemo(() => {
-    if (!result) {
-      return {
-        hours: 0,
-        gutMg: 0,
-        bodyMg: 0,
-        concMgPerL: 0,
-        eliminationMgPerH: 0,
-      };
-    }
-    return momentAt(
-      result.tH,
-      result.gutMg,
-      result.bodyMg,
-      result.concMgPerL,
-      result.eliminationMgPerH,
-      hours
-    );
-  }, [result, hours]);
+  const moment = breakdown[0]?.moment ?? {
+    hours: 0,
+    gutMg: 0,
+    bodyMg: 0,
+    concMgPerL: 0,
+    eliminationMgPerH: 0,
+  };
 
   /**
-   * The peak of each quantity over the whole run.
+   * The peak of each quantity, per medicine, over the whole run.
    *
-   * The organ levels are normalised against these, so each one is compared
-   * with its own kind: the concentration with the concentration, the
-   * clearance with the clearance.
+   * The organ fill is normalised against the strongest mover among the
+   * treatment's medicines; each medicine is still drawn against its own kind
+   * of quantity.
    */
   const peaks = React.useMemo(() => {
     const empty = { concMgPerL: 0, eliminationMgPerH: 0 };
-    if (!result) return empty;
+    if (!runs || runs.length === 0) return empty;
     const peakOf = (values: number[]) => values.reduce((max, v) => (v > max ? v : max), 0);
     return {
-      concMgPerL: peakOf(result.concMgPerL),
-      eliminationMgPerH: peakOf(result.eliminationMgPerH),
+      concMgPerL: Math.max(...runs.map((r) => peakOf(r.result.concMgPerL))),
+      eliminationMgPerH: Math.max(...runs.map((r) => peakOf(r.result.eliminationMgPerH))),
     };
-  }, [result]);
+  }, [runs]);
 
-  const levels = React.useMemo(() => levelsFor(moment, peaks), [moment, peaks]);
+  const levels = React.useMemo(() => {
+    if (breakdown.length === 0) return levelsFor(moment, peaks);
+    // The strongest mover among the medicines holds the fill.
+    const perBreakdown = breakdown.map((b) => levelsFor(b.moment, peaks));
+    const first = perBreakdown[0];
+    return Object.fromEntries(
+      Object.keys(first).map((key) => [
+        key,
+        Math.max(...perBreakdown.map((l) => l[key] ?? 0)),
+      ])
+    ) as Record<string, number>;
+  }, [breakdown, peaks, moment]);
 
   /* ---- the scroll drives the camera ----------------------------------- */
 
@@ -427,7 +451,7 @@ export default function Simulator() {
   }, [draft]);
 
   const saveReport = React.useCallback(async () => {
-    if (!client || !result || !report || saving) return;
+    if (!client || runs === null || reports.length === 0 || saving) return;
     setSaving(true);
     setAction(null);
 
@@ -449,16 +473,24 @@ export default function Simulator() {
         }));
     });
 
+    const perMedicine = reports.map(
+      ({ run, report }) =>
+        `${run.name}: ${report.bullets.join("; ")}`
+    );
     const summaryText = [
-      active.drugs.length > 1
-        ? "Additive exposure model — each medicine's own curve, summed; interactions are outside this model."
+      reports.length > 1
+        ? "Each medicine is modelled separately on its own approved row. Interactions are not modelled."
         : "Parameters sourced from the approved, cited PK row.",
       active.description.trim() ? `Case: ${active.description.trim().slice(0, 400)}` : "",
-      ...report.bullets,
+      ...perMedicine,
     ]
       .filter(Boolean)
       .join("\n")
       .slice(0, 1000);
+
+    // The report schema carries one metrics object; it is the first
+    // medicine's, and the summary names it — the panel never sums.
+    const first = reports[0].run.result;
 
     const { error } = await client.reports.saveReport({
       title: `${treatmentLabel} — ${new Date().toISOString().slice(0, 10)}`.slice(0, 100),
@@ -469,9 +501,9 @@ export default function Simulator() {
       },
       drugs,
       metrics: {
-        cmaxMgPerL: result.cmaxMgPerL,
-        tmaxH: result.tmaxH,
-        timeToClearH: result.timeToClearH,
+        cmaxMgPerL: first.cmaxMgPerL,
+        tmaxH: first.tmaxH,
+        timeToClearH: first.timeToClearH,
       },
       // No verified interaction pairs exist yet. Sending [] is the honest value.
       warnings: [],
@@ -481,7 +513,7 @@ export default function Simulator() {
     });
     setSaving(false);
     setAction(error ? `Save failed: ${error.message}` : "Report saved to your account.");
-  }, [active, client, report, result, saving]);
+  }, [active, client, reports, runs, saving]);
 
   const saveProfile = React.useCallback(async () => {
     if (!client) return;
@@ -495,13 +527,6 @@ export default function Simulator() {
   }, [client, draft]);
 
   /* ---- render ---------------------------------------------------------- */
-
-  const readouts = [
-    { label: "Concentration", value: moment.concMgPerL, digits: 3, unit: "mg/L" },
-    { label: "In the gut", value: moment.gutMg, digits: 1, unit: "mg" },
-    { label: "In the blood", value: moment.bodyMg, digits: 1, unit: "mg" },
-    { label: "Clearing", value: moment.eliminationMgPerH, digits: 2, unit: "mg/h" },
-  ];
 
   return (
     <div className="relative z-[2] min-h-screen text-ink">
@@ -538,7 +563,7 @@ export default function Simulator() {
             </span>
             <span className="hidden sm:inline">
               {active.drugs.length > 0
-                ? "Parameters from the approved, cited PK rows. Additive across medicines — interactions are outside this model."
+                ? "Parameters from the approved, cited PK rows. Each medicine is modelled separately — interactions are not modelled."
                 : "No medicine added. Search the catalogue to build a treatment."}
             </span>
           </p>
@@ -575,22 +600,70 @@ export default function Simulator() {
                 Model values
               </span>
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-                Engine output
+                Per medicine
               </span>
             </div>
-            <div className="grid grid-cols-2 gap-px min-[1280px]:grid-cols-4">
-              {readouts.map((item) => (
-                <div key={item.label} className="group relative bg-surface/80 px-3 py-2">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3 transition-colors duration-200 group-hover:text-brand-text">
-                    {item.label}
-                  </p>
-                  <p className="mt-0.5 font-mono text-[15px] leading-6 tabular-nums text-brand-text">
-                    {item.value.toFixed(item.digits)}
-                    <span className="ml-1 text-[11px] text-ink-3">{item.unit}</span>
-                  </p>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left">
+                <thead>
+                  <tr className="border-b border-line/60">
+                    {["Medicine", "Concentration", "In the gut", "In the blood", "Clearing"].map((h) => (
+                      <th
+                        key={h}
+                        className="bg-surface/80 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] font-normal text-ink-3"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(runs ?? []).map((run) => {
+                    const b = breakdown.find((x) => x.name === run.name);
+                    if (!b) return null;
+                    const m = b.moment;
+                    return (
+                      <tr key={run.id} className="border-b border-line/40 last:border-b-0">
+                        <td className="bg-surface/80 px-3 py-1.5 text-[13px] text-ink">
+                          <span
+                            className="mr-2 inline-block h-2 w-2 rounded-full align-middle"
+                            style={{ background: run.color }}
+                            aria-hidden="true"
+                          />
+                          {run.name}
+                        </td>
+                        {[
+                          `${m.concMgPerL.toFixed(3)} mg/L`,
+                          `${m.gutMg.toFixed(1)} mg`,
+                          `${m.bodyMg.toFixed(1)} mg`,
+                          `${m.eliminationMgPerH.toFixed(2)} mg/h`,
+                        ].map((v, i) => (
+                          <td
+                            key={i}
+                            className="bg-surface/80 px-3 py-1.5 font-mono text-[13px] tabular-nums text-brand-text"
+                          >
+                            {v}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                  {runs === null ? (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="bg-surface/80 px-3 py-3 text-[12px] text-ink-3"
+                      >
+                        Nothing to show yet — add a medicine and run.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
             </div>
+            <p className="border-t border-line/60 bg-surface/80 px-3 py-1.5 text-[11px] leading-4 text-warn">
+              {SEPARATE_CURVES_CAPTION}
+            </p>
           </div>
 
           {/* The dial: it moves the moment everything else is drawn from. */}
@@ -604,7 +677,7 @@ export default function Simulator() {
               onHours={handleHours}
               playing={playing}
               onTogglePlay={() => setPlaying((p) => !p)}
-              tmaxH={result?.tmaxH ?? null}
+              tmaxH={single ? single.result.tmaxH : null}
             />
             <p className="mt-2 font-mono text-[10px] uppercase leading-4 tracking-[0.1em] text-ink-3">
               Dial moves time · scroll moves the camera
@@ -642,7 +715,7 @@ export default function Simulator() {
                   <button
                     type="button"
                     onClick={() => void saveReport()}
-                    disabled={saving || !result}
+                    disabled={saving || reports.length === 0 || runs === null}
                     className="inline-flex items-center gap-2 rounded-xl border border-line-strong px-3 py-2 text-[13px] font-medium text-ink transition-colors hover:border-brand-text hover:text-brand-text disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                   >
                     <Save className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
@@ -679,7 +752,7 @@ export default function Simulator() {
         <div className="order-3 xl:order-3">
           <h2 className="sr-only">The walkthrough</h2>
           {steps.map((step, index) => {
-            const narration = narrate(step.organ, moment, condition);
+            const narration = narrate(step.organ, moment, condition, breakdown);
             const isActive = index === activeStep;
             return (
               <article
@@ -710,7 +783,40 @@ export default function Simulator() {
                   {narration.body}
                 </p>
 
-                <dl className="mt-5 grid max-w-[46ch] grid-cols-2 gap-2">
+                {narration.groups ? (
+                  <div className="mt-5 space-y-4">
+                    {narration.groups.map((group) => (
+                      <div key={group.name}>
+                        <p className="mb-1.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
+                          <span
+                            className="inline-block h-2 w-2 rounded-full"
+                            style={{ background: group.color }}
+                            aria-hidden="true"
+                          />
+                          {group.name}
+                        </p>
+                        <dl className="grid max-w-[46ch] grid-cols-2 gap-2">
+                          {group.figures.map((figure) => (
+                            <div
+                              key={figure.label}
+                              className={`rounded-[8px] border bg-surface/70 px-3 py-2 transition-[border-color,transform] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none motion-reduce:transform-none ${
+                                isActive ? "border-brand/35" : "border-line"
+                              }`}
+                            >
+                              <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                                {figure.label}
+                              </dt>
+                              <dd className="mt-0.5 font-mono text-[15px] tabular-nums text-brand-text">
+                                {figure.value}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <dl className={`${narration.groups ? "hidden" : "mt-5 grid max-w-[46ch] grid-cols-2 gap-2"}`}>
                   {narration.figures.map((figure) => (
                     <div
                       key={figure.label}
@@ -737,14 +843,24 @@ export default function Simulator() {
             );
           })}
 
-          {/* The engine's own summary, where the curve chart used to be. */}
-          {report ? (
-            <article className="flex min-h-[46vh] flex-col justify-center border-l-2 border-line py-10 pl-6">
-              <h3 className="font-heading text-[19px] font-semibold leading-7 tracking-tight text-ink">
-                The engine&rsquo;s own summary
-              </h3>
+          {/* One engine summary per medicine — never a shared summary. */}
+          {reports.map(({ run, report }: { run: MedicationRun; report: { bullets: string[]; disclaimer: string } }) => (
+            <article
+              key={run.id}
+              className="flex min-h-[46vh] flex-col justify-center border-l-2 border-line py-10 pl-6"
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ background: run.color }}
+                  aria-hidden="true"
+                />
+                <h3 className="font-heading text-[19px] font-semibold leading-7 tracking-tight text-ink">
+                  The engine&rsquo;s summary — {run.name}
+                </h3>
+              </div>
               <ul className="mt-3 space-y-1.5">
-                {report.bullets.map((bullet) => (
+                {report.bullets.map((bullet: string) => (
                   <li key={bullet} className="max-w-[46ch] font-mono text-[13px] leading-6 text-ink-2">
                     {bullet}
                   </li>
@@ -754,7 +870,7 @@ export default function Simulator() {
                 {report.disclaimer}
               </p>
             </article>
-          ) : null}
+          ))}
         </div>
       </div>
     </div>

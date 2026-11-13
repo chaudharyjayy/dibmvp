@@ -1,0 +1,75 @@
+{
+  "_comment": "Published reference values for scripts/validate-pk.ts. Every entry cites the sentence it came from. Rows may carry Cmax or tmax alone — the gate applies per metric and flags what is missing. 'no published reference' is an honest outcome, not a gap to fill.",
+  "weightKgReference": 70,
+  "cmaxErrorFailFraction": 0.25,
+  "tmaxErrorFailFraction": 0.25,
+  "references": [
+    {
+      "drug_id": "acetaminophen",
+      "reference_dose_mg": 1000,
+      "cmax_mg_per_l": 14.90716,
+      "cmax_note": "observed mean ± SD 6255.10 ng/mL; treatment E (FDC oral, 1000 mg acetaminophen + 300 mg ibuprofen); converted ÷1000 to mg/L",
+      "tmax_h": null,
+      "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4579261/",
+      "source_quote": "C max (ng/mL) | 26,709.57 ± 5814.74 | 26,236.06 ± 5430.52 | 12,880.39 ± 2553.15 | 14,907.16 ± 6255.10",
+      "source_title": "Pharmacokinetics and Bioavailability of a Fixed-Dose Combination of Ibuprofen and Paracetamol after Intravenous and Oral Administration (Clin Drug Investig 2015;35:625-632)",
+      "kind": "observed-in-combination",
+      "citation_pack": [
+        {
+          "publisher_values": "Population-model predicted (fasted tablet, 1000 mg): Cmax 12.8 mg/L (95% PI 6.76-24.2), tmax 0.61 h (0.26-1.24)",
+          "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9232434/"
+        }
+      ]
+    },
+    {
+      "drug_id": "ibuprofen",
+      "reference_dose_mg": 300,
+      "cmax_mg_per_l": 19.63738,
+      "cmax_note": "observed mean ± SD 5178.29 ng/mL; treatment E (FDC oral, same combination product); converted ÷1000 to mg/L",
+      "tmax_h": null,
+      "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4579261/",
+      "source_quote": "C max (ng/mL) | 39,506.69 ± 6874.06 | 40,292.97 ± 7460.04 | 20,352.05 ± 3090.87 | 19,637.38 ± 5178.29",
+      "source_title": "Pharmacokinetics and Bioavailability of a Fixed-Dose Combination of Ibuprofen and Paracetamol after Intravenous and Oral Administration (Clin Drug Investig 2015;35:625-632)",
+      "kind": "observed-in-combination",
+      "citation_pack": [
+        {
+          "publisher_values": "Population-model predicted (fasted tablet, 300 mg): Cmax 24.1 mg/L (95% PI 13.3-40.8), tmax 0.94 h (0.48-1.67)",
+          "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9232434/"
+        }
+      ]
+    },
+    {
+      "drug_id": "amoxicillin",
+      "reference_dose_mg": 500,
+      "cmax_mg_per_l": null,
+      "tmax_h": null,
+      "source_url": null,
+      "source_quote": null,
+      "source_title": null,
+      "kind": "no published reference",
+      "note": "Arancibia 1980 (PMC283758) reports serum level SCHEDULES and rate constants (alpha 3.40/h, kappa a 1.02/h, ka absorption half-life 0.72 h) but no Cmax or tmax in the same source; no freely accessible published Cmax located. Do not fill from memory."
+    },
+    {
+      "drug_id": "gabapentin",
+      "reference_dose_mg": 300,
+      "cmax_mg_per_l": null,
+      "tmax_h": null,
+      "source_url": null,
+      "source_quote": null,
+      "source_title": null,
+      "kind": "no published reference",
+      "note": "Tran 2017 (PMID 29018999) reports NLME parameters (ka 0.860/h, apparent CL/F 11.1 L/h, apparent V/F 81 L) but prints no observed or predicted Cmax or tmax in the abstract; not located in the accessible full text. Do not fill from memory."
+    },
+    {
+      "drug_id": "caffeine",
+      "reference_dose_mg": 100,
+      "cmax_mg_per_l": null,
+      "tmax_h": null,
+      "source_url": null,
+      "source_quote": null,
+      "source_title": null,
+      "kind": "no published reference",
+      "note": "Banwo 2024 (PMC11593559) and the DailyMed caffeine citrate label carry ka, F, CL and V but no published Cmax or tmax for a defined oral dose. Do not fill from memory."
+    }
+  ]
+}

@@ -18,7 +18,7 @@ export const exampleDrug: Drug = {
   F: 1.0,
   V_L_per_kg: 5.0,
   CL_L_per_h_per_kg: 0.7,
-  label_dose_range_mg: [0, 500],
+  studied_dose_range_mg: [0, 500],
   sources: [],
   notes: "TEST FIXTURE ONLY — placeholder parameters, not sourced",
 };
