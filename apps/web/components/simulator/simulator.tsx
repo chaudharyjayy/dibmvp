@@ -41,6 +41,7 @@ import {
   organsFor,
 } from "./condition";
 import type { FocusOrgan, SimulatorScene } from "./scene";
+import OrganMonitor from "./organ-monitor";
 import { drugFromPk, DRUG_COLORS, SEPARATE_CURVES_CAPTION, type MedicationRun } from "@/lib/treatment";
 import { getApprovedCitations, getApprovedPk } from "@/lib/catalogue";
 import type { DrugParameterCitation, DrugPkRow } from "@dib/data-client";
@@ -91,6 +92,10 @@ export default function Simulator() {
   /* ---- the model ------------------------------------------------------ */
 
   const [scene, setScene] = React.useState<SimulatorScene | null>(null);
+  /** Which view the right column is showing. */
+  const [rightView, setRightView] = React.useState<"walkthrough" | "monitor">("walkthrough");
+  /** The organ the visitor is watching, in the monitor. */
+  const [monitorFocus, setMonitorFocus] = React.useState<FocusOrgan | null>(null);
   const [brainRegion, setBrainRegion] = React.useState<BrainRegion | null>(null);
 
   /** The readout row, so a change can sweep a light across it. */
@@ -400,7 +405,10 @@ export default function Simulator() {
     setActiveStep(0);
   }, [active.conditionId]);
 
-  const focusOrgan: FocusOrgan | null = steps[activeStep]?.organ ?? null;
+  const walkthroughFocus: FocusOrgan | null = steps[activeStep]?.organ ?? null;
+  /** The camera's organ: the monitor's selection when it is on screen,
+   *  otherwise the walkthrough's step. */
+  const focusOrgan = rightView === "monitor" ? monitorFocus : walkthroughFocus;
 
   React.useEffect(() => {
     scene?.focusOrgan(focusOrgan);
@@ -750,6 +758,53 @@ export default function Simulator() {
 
         {/* ---- the walkthrough ---- */}
         <div className="order-3 xl:order-3">
+          <div className="sticky top-[84px]">
+            <div
+              role="tablist"
+              aria-label="Right panel view"
+              className="mb-4 flex gap-1 rounded-[10px] border border-line bg-surface/60 p-1"
+            >
+              {(
+                [
+                  ["walkthrough", "Walkthrough"],
+                  ["monitor", "Organ monitor"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={rightView === id}
+                  aria-controls={`right-panel-${id}`}
+                  id={`right-tab-${id}`}
+                  onClick={() => setRightView(id)}
+                  className={`flex-1 rounded-[8px] py-2 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none ${
+                    rightView === id ? "bg-brand text-[#04121a]" : "text-ink-2 hover:text-ink"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {rightView === "monitor" ? (
+              <div
+                role="tabpanel"
+                id="right-panel-monitor"
+                aria-labelledby="right-tab-monitor"
+                className="overflow-hidden rounded-[10px] border border-line bg-surface/40"
+              >
+                <OrganMonitor
+                  runs={runs}
+                  hours={hours}
+                  focus={monitorFocus}
+                  onToggleFocus={(organ) => setMonitorFocus(organ)}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          {rightView === "walkthrough" ? (
+            <div role="tabpanel" id="right-panel-walkthrough" aria-labelledby="right-tab-walkthrough">
           <h2 className="sr-only">The walkthrough</h2>
           {steps.map((step, index) => {
             const narration = narrate(step.organ, moment, condition, breakdown);
@@ -871,6 +926,8 @@ export default function Simulator() {
               </p>
             </article>
           ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
