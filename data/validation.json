@@ -1,5 +1,5 @@
 {
-  "_comment": "Published reference values for scripts/validate-pk.ts. Every entry cites the sentence it came from. Rows may carry Cmax or tmax alone \u2014 the gate applies per metric and flags what is missing. 'no published reference' is an honest outcome, not a gap to fill.",
+  "_comment": "Published reference values for scripts/validate-pk.ts. Every entry cites the sentence it came from. Rows may carry Cmax or tmax alone \u2014 the gate applies per metric and flags what is missing. no published reference is an honest outcome, not a gap to fill. Each metric carries its own quote: source_quote backs cmax (quoted in ng/mL, stored in mg/L \u2014 divide by 1000), tmax_quote backs tmax (quoted in hours). A comparator that is replaced is not deleted: it stays in withdrawn_tmax with its source and the reason, so a reviewer can see what changed and why.",
   "weightKgReference": 70,
   "cmaxErrorFailFraction": 0.25,
   "tmaxErrorFailFraction": 0.25,
@@ -9,7 +9,7 @@
       "reference_dose_mg": 1000,
       "cmax_mg_per_l": 14.90716,
       "cmax_note": "observed mean \u00b1 SD 6255.10 ng/mL; treatment E (FDC oral, 1000 mg acetaminophen + 300 mg ibuprofen); converted \u00f71000 to mg/L",
-      "tmax_h": 0.75,
+      "tmax_h": 0.73,
       "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4579261/",
       "source_quote": "C max (ng/mL) | 26,709.57 \u00b1 5814.74 | 26,236.06 \u00b1 5430.52 | 12,880.39 \u00b1 2553.15 | 14,907.16 \u00b1 6255.10",
       "source_title": "Pharmacokinetics and Bioavailability of a Fixed-Dose Combination of Ibuprofen and Paracetamol after Intravenous and Oral Administration (Clin Drug Investig 2015;35:625-632)",
@@ -20,14 +20,20 @@
           "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9232434/"
         }
       ],
-      "tmax_note": "DailyMed label \u2014 Combogesic (setid f863558f-2a44-41f8-a6b7-271851d4c2ff): 'peak plasma concentration following the administration of three COMBOGESIC tablets occurs at approximately 45 minutes and 1 hour 15 minutes after administration for acetaminophen and ibuprofen, respectively, under fasting condition.' Reviewed OpenCode source review, 2026-11-13."
+      "tmax_note": "Observed T max for treatment E (FDC oral, 1000 mg acetaminophen + 300 mg ibuprofen) \u2014 the same study, product, treatment arm and dose as the Cmax comparator above: 0.73 \u00b1 0.42 h. The row is quoted verbatim in tmax_quote; the footnote marker a is not spelled out in the accessible text of the article, so the value is used as printed. The DailyMed Combogesic label (setid f863558f-2a44-41f8-a6b7-271851d4c2ff) states that peak plasma concentration following the administration of three COMBOGESIC tablets occurs at approximately 45 minutes and 1 hour 15 minutes after administration for acetaminophen and ibuprofen, respectively, under fasting condition \u2014 0.75 h for acetaminophen, which agrees with the observed 0.73 h within rounding. Reviewed OpenCode source review, 2026-11-16.",
+      "tmax_quote": "T max (h)a | 0.00 \u00b1 0.00 | 0.00 \u00b1 0.00 | 0.00 \u00b1 0.02 | 0.73 \u00b1 0.42",
+      "withdrawn_tmax": {
+        "value": 0.75,
+        "source": "DailyMed Combogesic label (setid f863558f-2a44-41f8-a6b7-271851d4c2ff): peak plasma concentration following the administration of three COMBOGESIC tablets occurs at approximately 45 minutes and 1 hour 15 minutes after administration for acetaminophen and ibuprofen, respectively, under fasting condition",
+        "reason": "Superseded on 2026-11-16 by the observed value from the same study that supplies the Cmax comparator, so that both metrics of this record come from one study, product, treatment arm and dose. The label value agrees with the observed value within rounding (0.75 h vs 0.73 h) and is kept here."
+      }
     },
     {
       "drug_id": "ibuprofen",
       "reference_dose_mg": 300,
       "cmax_mg_per_l": 19.63738,
       "cmax_note": "observed mean \u00b1 SD 5178.29 ng/mL; treatment E (FDC oral, same combination product); converted \u00f71000 to mg/L",
-      "tmax_h": 0.79,
+      "tmax_h": 1.49,
       "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4579261/",
       "source_quote": "C max (ng/mL) | 39,506.69 \u00b1 6874.06 | 40,292.97 \u00b1 7460.04 | 20,352.05 \u00b1 3090.87 | 19,637.38 \u00b1 5178.29",
       "source_title": "Pharmacokinetics and Bioavailability of a Fixed-Dose Combination of Ibuprofen and Paracetamol after Intravenous and Oral Administration (Clin Drug Investig 2015;35:625-632)",
@@ -38,7 +44,13 @@
           "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9232434/"
         }
       ],
-      "tmax_note": "DailyMed label \u2014 ibuprofen suspension (setid dda7645f-1666-4c1f-b974-01add2ea79ac): table legend 'T max (h) 0.79 (69%) 0.97 (57%)'. The cited excerpt does not label the columns; 0.79 accepted as recorded in data/pk-parameters.csv by OpenCode source review, 2026-11-13 \u2014 which column the value belongs to is not legible from the excerpt. Kept with this caveat: do not read 0.79 as a fasted-tablet reference."
+      "tmax_note": "Observed T max for treatment E (FDC oral, 300 mg ibuprofen + 1000 mg acetaminophen) \u2014 the same study, product, treatment arm and dose as the Cmax comparator above: 1.49 \u00b1 0.89 h. The row is quoted verbatim in tmax_quote; the footnote marker a is not spelled out in the accessible text of the article, so the value is used as printed. The DailyMed Combogesic label (setid f863558f-2a44-41f8-a6b7-271851d4c2ff) gives the same product a peak at approximately 1 hour 15 minutes after administration for ibuprofen under fasting condition \u2014 1.25 h, the value the simulation reproduces. The population-model predicted tmax for a fasted 300 mg tablet (0.94 h, 95% PI 0.48-1.67) is in citation_pack, and the simulated value sits inside that interval. Reviewed OpenCode source review, 2026-11-16.",
+      "tmax_quote": "T max (h)a | 0.00 \u00b1 0.00 | 0.00 \u00b1 0.00 | 0.00 \u00b1 0.00 | 1.49 \u00b1 0.89",
+      "withdrawn_tmax": {
+        "value": 0.79,
+        "source": "DailyMed ibuprofen suspension label (setid dda7645f-1666-4c1f-b974-01add2ea79ac): table legend T max (h) 0.79 (69%) 0.97 (57%)",
+        "reason": "Withdrawn as the comparator on 2026-11-16. It is a different formulation (oral suspension) from the product the simulation models, its excerpt does not label which column each value belongs to, and the note recorded with it already said not to read 0.79 as a fasted-tablet reference. Kept here as a secondary, non-comparable number."
+      }
     },
     {
       "drug_id": "amoxicillin",

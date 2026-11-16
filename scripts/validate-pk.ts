@@ -33,6 +33,13 @@ type Reference = {
   kind: string;
   note?: string;
   citation_pack?: Array<{ publisher_values: string; source_url: string }>;
+  /** The quoted row that states the published tmax, in hours. */
+  tmax_quote?: string | null;
+  /**
+   * A comparator that was replaced. It is kept, with the reason, so a reviewer
+   * can see what changed and why instead of finding a silently edited number.
+   */
+  withdrawn_tmax?: { value: number; source: string; reason: string } | null;
 };
 
 type ValidationFile = {
@@ -173,6 +180,8 @@ async function main() {
 
   let failures = 0;
   const table: string[] = [];
+  /** The quoted source row behind every metric the gate compares. */
+  const evidence: string[] = [];
   for (let drug of approved) {
     if (tlagOverrides.has(drug.id)) {
       drug = { ...drug, tlag_h: tlagOverrides.get(drug.id) };
@@ -191,6 +200,23 @@ async function main() {
     });
     const cmaxPct = ref.cmax_mg_per_l != null ? pct(res.cmaxMgPerL, ref.cmax_mg_per_l) : null;
     const tmaxPct = ref.tmax_h != null ? pct(res.tmaxH, ref.tmax_h) : null;
+    // A published number is only a number when the line that states it is
+    // quoted beside it. A comparator with no quoted row is a number someone
+    // typed in, which is what this repository refuses to ship.
+    if (ref.cmax_mg_per_l != null && !ref.source_quote) {
+      failures += 1;
+      table.push(`${drug.id.padEnd(28)} Cmax has no quoted source row - FAIL`);
+    }
+    if (ref.tmax_h != null && !ref.tmax_quote) {
+      failures += 1;
+      table.push(`${drug.id.padEnd(28)} tmax has no quoted source row - FAIL`);
+    }
+    if (ref.cmax_mg_per_l != null && ref.source_quote) {
+      evidence.push(`${drug.id} Cmax ${ref.cmax_mg_per_l} mg/L <- ${ref.source_quote}`);
+    }
+    if (ref.tmax_h != null && ref.tmax_quote) {
+      evidence.push(`${drug.id} tmax ${ref.tmax_h} h <- ${ref.tmax_quote}`);
+    }
     if ((cmaxPct ?? 0) > validation.cmaxErrorFailFraction * 100) failures += 1;
     if ((tmaxPct ?? 0) > validation.tmaxErrorFailFraction * 100) failures += 1;
     table.push(
@@ -209,6 +235,10 @@ async function main() {
 
   console.log('\nvalidate-pk — approved drugs vs published references\n');
   for (const line of table) console.log('  ' + line);
+  if (evidence.length > 0) {
+    console.log('\nPublished evidence for each validated metric:\n');
+    for (const line of evidence) console.log('  ' + line);
+  }
   console.log(
     '\nReferences carry their source quotes in data/validation.json; rows without one are shown as unvalidated, never filled in from memory. Population-average simulation only.',
   );
