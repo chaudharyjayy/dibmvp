@@ -21,8 +21,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CONDITIONS } from "./condition";
 import { parsePrescription } from "./prescription";
-import { getApprovedPk, searchCatalogue } from "@/lib/catalogue";
+import { getApprovedPk, listReadyCatalogue, searchCatalogue } from "@/lib/catalogue";
 import type { DrugParameterCitation } from "@dib/data-client";
+import {
+  HEART_PROFILES,
+  KIDNEY_PROFILES,
+  LIVER_PROFILES,
+  LUNG_PROFILES,
+  getOrganProfilesForCondition,
+  type OrganProfileSelection,
+  type HeartProfileId,
+  type KidneyProfileId,
+  type LiverProfileId,
+  type LungProfileId,
+} from "@dib/engine";
 
 export type DoseRow = {
   timeH: number;
@@ -49,6 +61,7 @@ export type SimulatorInput = {
   sex: "female" | "male" | "other";
   drugs: DrugLine[];
   tEndH: number;
+  organProfiles?: OrganProfileSelection;
 };
 
 type ConsoleProps = {
@@ -169,7 +182,14 @@ export default function SimulatorConsole({
           <select
             id="condition"
             value={value.conditionId}
-            onChange={(event) => set("conditionId", event.target.value)}
+            onChange={(event) => {
+              const nextId = event.target.value;
+              onChange({
+                ...value,
+                conditionId: nextId,
+                organProfiles: getOrganProfilesForCondition(nextId),
+              });
+            }}
             className={`${inputClass} appearance-none pr-9`}
           >
             {CONDITIONS.map((condition) => (
@@ -339,6 +359,129 @@ export default function SimulatorConsole({
         </p>
       </div>
 
+      {/* Organ Archetype Profiles */}
+      <div className="rounded-xl border border-line bg-surface/40 p-4">
+        <div className="flex items-baseline justify-between mb-2">
+          <span className={fieldLabel}>Organ Archetypes & Physiology</span>
+          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-brand-text">
+            Multi-Organ Reference
+          </span>
+        </div>
+        <p className="text-[11px] leading-4 text-ink-3 mb-3">
+          Synthetic clinical archetypes for cardiovascular, renal, hepatic, and pulmonary function.
+        </p>
+
+        <div className="space-y-3">
+          {/* Heart */}
+          <div>
+            <label className="block font-mono text-[10px] uppercase tracking-[0.1em] text-ink-2 mb-1" htmlFor="heart-profile">
+              Heart ({HEART_PROFILES.find((p) => p.profile_id === value.organProfiles?.heartId)?.nyha_class === "none" ? "Healthy" : `NYHA ${HEART_PROFILES.find((p) => p.profile_id === value.organProfiles?.heartId)?.nyha_class}`})
+            </label>
+            <select
+              id="heart-profile"
+              value={value.organProfiles?.heartId ?? "heart_healthy_adult"}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  organProfiles: {
+                    ...value.organProfiles,
+                    heartId: e.target.value as HeartProfileId,
+                  },
+                })
+              }
+              className={`${inputClass} text-xs py-1.5`}
+            >
+              {HEART_PROFILES.map((p) => (
+                <option key={p.profile_id} value={p.profile_id} className="bg-surface text-ink">
+                  {p.label} (LVEF {p.lvef_pct}%, HR {p.resting_heart_rate_bpm})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Kidney */}
+          <div>
+            <label className="block font-mono text-[10px] uppercase tracking-[0.1em] text-ink-2 mb-1" htmlFor="kidney-profile">
+              Kidneys ({KIDNEY_PROFILES.find((p) => p.profile_id === value.organProfiles?.kidneyId)?.ckd_stage})
+            </label>
+            <select
+              id="kidney-profile"
+              value={value.organProfiles?.kidneyId ?? "kidney_healthy_adult"}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  organProfiles: {
+                    ...value.organProfiles,
+                    kidneyId: e.target.value as KidneyProfileId,
+                  },
+                })
+              }
+              className={`${inputClass} text-xs py-1.5`}
+            >
+              {KIDNEY_PROFILES.map((p) => (
+                <option key={p.profile_id} value={p.profile_id} className="bg-surface text-ink">
+                  {p.label} (eGFR {p.egfr_ml_min_1_73m2}, CL scale {(p.clearance_scaling_factor * 100).toFixed(0)}%)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Liver */}
+          <div>
+            <label className="block font-mono text-[10px] uppercase tracking-[0.1em] text-ink-2 mb-1" htmlFor="liver-profile">
+              Liver ({LIVER_PROFILES.find((p) => p.profile_id === value.organProfiles?.liverId)?.child_pugh_class === "none" ? "Normal" : `Child-Pugh ${LIVER_PROFILES.find((p) => p.profile_id === value.organProfiles?.liverId)?.child_pugh_class}`})
+            </label>
+            <select
+              id="liver-profile"
+              value={value.organProfiles?.liverId ?? "liver_healthy_adult"}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  organProfiles: {
+                    ...value.organProfiles,
+                    liverId: e.target.value as LiverProfileId,
+                  },
+                })
+              }
+              className={`${inputClass} text-xs py-1.5`}
+            >
+              {LIVER_PROFILES.map((p) => (
+                <option key={p.profile_id} value={p.profile_id} className="bg-surface text-ink">
+                  {p.label} (CL scale {(p.clearance_scaling_factor * 100).toFixed(0)}%)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Lungs */}
+          <div>
+            <label className="block font-mono text-[10px] uppercase tracking-[0.1em] text-ink-2 mb-1" htmlFor="lung-profile">
+              Lungs ({LUNG_PROFILES.find((p) => p.profile_id === value.organProfiles?.lungId)?.smoking_status === "never" ? "Non-smoker" : `Smoker (${LUNG_PROFILES.find((p) => p.profile_id === value.organProfiles?.lungId)?.pack_years} pack-yrs)`})
+            </label>
+            <select
+              id="lung-profile"
+              value={value.organProfiles?.lungId ?? "lung_healthy_adult"}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  organProfiles: {
+                    ...value.organProfiles,
+                    lungId: e.target.value as LungProfileId,
+                  },
+                })
+              }
+              className={`${inputClass} text-xs py-1.5`}
+            >
+              {LUNG_PROFILES.map((p) => (
+                <option key={p.profile_id} value={p.profile_id} className="bg-surface text-ink">
+                  {p.label} (FEV1 {p.fev1_pct_predicted}%, SpO2 {p.spo2_rest_pct}%)
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
       {/* Window */}
       <div>
         <div className="flex items-center gap-3">
@@ -402,33 +545,66 @@ function DrugSearch({
 }) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<CatalogueHit[] | null>(null);
+  const [ready, setReady] = useState<CatalogueHit[] | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** Off by default: the catalogue is enormous and almost none of it runs. */
+  const [showAll, setShowAll] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [catalogueState, setCatalogueState] = useState<
+    "ok" | "unconfigured" | "unreachable"
+  >("ok");
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const term = query.trim();
+
+  // What can run at all, fetched once: the answer to "which medicine can I
+  // pick?" must not depend on typing a name that happens to have parameters.
+  useEffect(() => {
+    let cancelled = false;
+    listReadyCatalogue(8).then((result) => {
+      if (cancelled) return;
+      if (result.error) {
+        setCatalogueState(result.error);
+        return;
+      }
+      setCatalogueState("ok");
+      setReady(result.hits);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Debounced catalogue search: quiet while typing, one request per pause.
   useEffect(() => {
-    const term = query.trim();
     if (term.length < 2 || full) {
       setHits(null);
       setOpen(false);
+      setBusy(false);
       return;
     }
     setBusy(true);
     const timer = setTimeout(() => {
-      searchCatalogue(term, 12)
+      searchCatalogue(term, 12, { readyOnly: !showAll })
         .then((result) => {
-          setHits(result.hits ?? []);
+          if (result.error) {
+            setCatalogueState(result.error);
+            setHits([]);
+          } else {
+            setCatalogueState("ok");
+            setHits(result.hits);
+          }
           setOpen(true);
         })
         .catch(() => {
+          setCatalogueState("unreachable");
           setHits([]);
           setOpen(true);
         })
         .finally(() => setBusy(false));
     }, 250);
     return () => clearTimeout(timer);
-  }, [query, full]);
+  }, [term, full, showAll]);
 
   // Close on outside click.
   useEffect(() => {
@@ -440,22 +616,51 @@ function DrugSearch({
     return () => window.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  /** Adds a drug: fetch its approved PK row first; the add confirms it exists. */
+  /**
+   * Adds a medicine only once its approved PK row is in hand.
+   *
+   * The row is the contract: the simulator runs on those four numbers, so a
+   * click that cannot produce them adds nothing and says why.
+   */
   const add = (hit: CatalogueHit) => {
+    if (hit.pkStatus !== "reviewed") {
+      setNote(
+        `${hit.name} cannot be simulated yet: its pharmacokinetics are not approved and cited.`
+      );
+      return;
+    }
     setOpen(false);
     setQuery("");
     setBusy(true);
+    setNote(null);
     Promise.resolve(getApprovedPk(hit.id))
       .then((pk) => {
+        if (!pk || pk === "error" || pk === "unconfigured") {
+          setNote(
+            pk === "error" || pk === "unconfigured"
+              ? "The catalogue is not reachable right now, so nothing was added."
+              : `${hit.name} has no approved pharmacokinetics yet, so it cannot be simulated.`
+          );
+          return;
+        }
         const range =
-          pk && pk !== "error" && pk !== "unconfigured" && pk.doseMinMg != null && pk.doseMaxMg != null
+          pk.doseMinMg != null && pk.doseMaxMg != null
             ? ([Number(pk.doseMinMg), Number(pk.doseMaxMg)] as [number, number])
             : null;
         onAdd(hit, range);
       })
-      .catch(() => onAdd(hit, null))
+      .catch(() => setNote("The catalogue is not reachable right now, so nothing was added."))
       .finally(() => setBusy(false));
   };
+
+  const row = (hit: CatalogueHit) => (
+    <DrugRow
+      key={hit.id}
+      hit={hit}
+      added={selectedIds.includes(hit.id)}
+      onPick={() => add(hit)}
+    />
+  );
 
   return (
     <div ref={boxRef} className="relative">
@@ -465,10 +670,17 @@ function DrugSearch({
         role="combobox"
         aria-expanded={open}
         aria-controls="drug-search-results"
+        aria-autocomplete="list"
         autoComplete="off"
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setNote(null);
+        }}
         onFocus={() => hits && hits.length > 0 && setOpen(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setOpen(false);
+        }}
         placeholder={full ? `Treatment is full (${MAX_DRUGS})` : "Search the catalogue — e.g. ibuprofen"}
         disabled={full}
         className={inputClass}
@@ -481,6 +693,59 @@ function DrugSearch({
           …
         </span>
       ) : null}
+
+      {/* Before typing: the medicines that actually run. */}
+      {term.length < 2 && !full && ready && ready.length > 0 ? (
+        <div className="mt-2">
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+            Ready to simulate
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {ready.map((hit) => {
+              const added = selectedIds.includes(hit.id);
+              return (
+                <button
+                  key={hit.id}
+                  type="button"
+                  disabled={added}
+                  onClick={() => add(hit)}
+                  title={
+                    added
+                      ? `${hit.name} is already in this treatment.`
+                      : `${hit.name} — all four parameters are approved and cited.`
+                  }
+                  className={`rounded-full border px-2.5 py-1 text-[12px] transition-colors duration-150 motion-reduce:transition-none ${
+                    added
+                      ? "cursor-not-allowed border-line text-ink-3"
+                      : "border-line-strong text-ink-2 hover:border-brand hover:text-brand-text"
+                  }`}
+                >
+                  {hit.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {catalogueState === "unconfigured" ? (
+        <p className="mt-2 text-[12px] leading-4 text-ink-3">
+          The catalogue is not connected — set <code>NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
+          <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in <code>apps/web/.env.local</code> and
+          restart the dev server.
+        </p>
+      ) : null}
+      {catalogueState === "unreachable" ? (
+        <p className="mt-2 text-[12px] leading-4 text-ink-3">
+          The catalogue is unreachable right now. Nothing was added.
+        </p>
+      ) : null}
+      {note ? (
+        <p role="alert" className="mt-2 text-[12px] leading-4 text-amber-300">
+          {note}
+        </p>
+      ) : null}
+
       {open && hits ? (
         <ul
           id="drug-search-results"
@@ -488,41 +753,92 @@ function DrugSearch({
           className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-line bg-surface shadow-[0_16px_40px_rgba(0,0,0,0.55)]"
         >
           {hits.length === 0 ? (
-            <li className="px-3 py-2 text-[13px] text-ink-3">Nothing in the catalogue for that.</li>
-          ) : (
-            hits.map((hit) => {
-              const already = selectedIds.includes(hit.id);
-              const runnable = hit.pkStatus === "reviewed";
-              return (
-                <li key={hit.id} className="border-b border-line/60 last:border-b-0">
+            <li className="px-3 py-2 text-[13px] text-ink-3">
+              {showAll ? (
+                <>Nothing in the catalogue for that.</>
+              ) : (
+                <>
+                  No medicine that is ready to simulate matches “{term}”.
                   <button
                     type="button"
-                    disabled={already || !runnable}
-                    onClick={() => add(hit)}
-                    className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] transition-colors duration-150 motion-reduce:transition-none ${
-                      already || !runnable
-                        ? "cursor-not-allowed text-ink-3"
-                        : "text-ink hover:bg-brand/10"
-                    }`}
+                    onClick={() => setShowAll(true)}
+                    className="ml-1 underline decoration-line-strong underline-offset-2 hover:text-brand-text"
                   >
-                    <span className="truncate">{hit.name}</span>
-                    <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.1em]">
-                      {already
-                        ? "added"
-                        : runnable
-                          ? "author-verified"
-                          : hit.pkStatus === "partial"
-                            ? "pk partial"
-                            : "pk not sourced"}
-                    </span>
+                    Search the whole catalogue
+                  </button>
+                </>
+              )}
+            </li>
+          ) : (
+            <>
+              {hits.map(row)}
+              {!showAll ? (
+                <li className="border-t border-line/60 px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAll(true)}
+                    className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3 hover:text-brand-text"
+                  >
+                    Show every catalogue entry
                   </button>
                 </li>
-              );
-            })
+              ) : (
+                <li className="border-t border-line/60 px-3 py-2 text-[11px] leading-4 text-ink-3">
+                  Greyed entries cannot be simulated: their pharmacokinetics are not approved
+                  and cited, and the simulator never runs on unsourced numbers.
+                </li>
+              )}
+            </>
           )}
         </ul>
       ) : null}
     </div>
+  );
+}
+
+/** One catalogue result. Only a complete, cited row is pickable. */
+function DrugRow({
+  hit,
+  added,
+  onPick,
+}: {
+  hit: CatalogueHit;
+  added: boolean;
+  onPick: () => void;
+}) {
+  const ready = hit.pkStatus === "reviewed";
+  const disabled = added || !ready;
+  const label = added
+    ? "added"
+    : ready
+      ? "ready · cited PK"
+      : hit.pkStatus === "partial"
+        ? "PK incomplete"
+        : "no cited PK";
+
+  return (
+    <li className="border-b border-line/60 last:border-b-0">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onPick}
+        title={
+          added
+            ? `${hit.name} is already in this treatment.`
+            : ready
+              ? `${hit.name} — all four parameters are approved and cited.`
+              : `${hit.name} cannot be simulated: its pharmacokinetics are not approved and cited yet.`
+        }
+        className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] transition-colors duration-150 motion-reduce:transition-none ${
+          disabled ? "cursor-not-allowed text-ink-3" : "text-ink hover:bg-brand/10"
+        }`}
+      >
+        <span className="truncate">{hit.name}</span>
+        <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.1em]">
+          {label}
+        </span>
+      </button>
+    </li>
   );
 }
 

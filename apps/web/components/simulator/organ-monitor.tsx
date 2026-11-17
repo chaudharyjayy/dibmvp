@@ -20,8 +20,19 @@
 
 import { useMemo } from "react";
 import type { FocusOrgan } from "./scene";
-import type { SimResult } from "@dib/engine";
 import type { MedicationRun } from "@/lib/treatment";
+import OrganChart, { formatValue, valueAt, type ChartSeries } from "./organ-chart";
+import {
+  getHeartProfile,
+  getKidneyProfile,
+  getLiverProfile,
+  getLungProfile,
+  computeHeartDynamic,
+  computeKidneyDynamic,
+  computeLiverDynamic,
+  computeLungDynamic,
+  type OrganProfileSelection,
+} from "@dib/engine";
 
 type Trace = { tH: number[]; conc: number[]; gut: number[]; elim: number[] };
 
@@ -32,72 +43,48 @@ export type OrganMonitorProps = {
   /** Which organ the camera is on, or null for the whole body. */
   focus: FocusOrgan | null;
   onToggleFocus: (organ: FocusOrgan | null) => void;
+  organProfiles?: OrganProfileSelection;
 };
 
-const TRACE_W = 132;
-const TRACE_H = 36;
-const MAX_TRACE_SAMPLES = 120;
+/** Points drawn per trace: enough for the shape, few enough for six charts. */
+const MAX_TRACE_SAMPLES = 140;
 
-/** Down-sample a series to a max number of points for the trace. */
-function decimate(values: number[], limit: number): number[] {
-  if (values.length <= limit) return values;
-  const stride = (values.length - 1) / (limit - 1);
-  const out: number[] = [];
-  for (let i = 0; i < limit; i += 1) out.push(values[Math.round(i * stride)]);
-  return out;
-}
-
-/** The per-sample max over every medicine's series, for the combined fill. */
-function pickAtMax(traces: Trace[], pick: (trace: Trace) => number[]): number[] {
-  const first = pick(traces[0]);
-  const out = new Array(first.length).fill(0);
-  for (const trace of traces) {
-    const values = pick(trace);
-    for (let i = 0; i < values.length; i += 1) {
-      if (values[i] > out[i]) out[i] = values[i];
-    }
+/** Index of the tallest sample — always kept when a curve is down-sampled. */
+function peakIndexOf(values: number[]): number {
+  let best = 0;
+  for (let i = 1; i < values.length; i += 1) {
+    if (values[i] > values[best]) best = i;
   }
-  return out;
+  return best;
 }
 
-/** A polyline scaled to fit the trace box, y down. */
-function tracePath(values: number[]): string {
-  if (values.length < 2) return "";
-  const peak = Math.max(...values, 1e-9);
-  const step = TRACE_W / (values.length - 1);
-  return values
-    .map(
-      (v, i) =>
-        `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)} ${(TRACE_H - 2 - (v / peak) * (TRACE_H - 4)).toFixed(1)}`
-    )
-    .join(" ");
+/**
+ * Uniform sample indices, plus the peak.
+ *
+ * Every series of one organ is decimated with the *same* indices, so the
+ * medicines stay aligned in time and comparable in height. The peak index is
+ * forced in so a narrow maximum is never skipped by the downsample.
+ */
+function sampleIndices(length: number, limit: number, peakIndex: number): number[] {
+  if (length <= limit) return Array.from({ length }, (_, i) => i);
+  const stride = (length - 1) / (limit - 1);
+  const out = new Set<number>([peakIndex]);
+  for (let i = 0; i < limit; i += 1) out.add(Math.round(i * stride));
+  return [...out].sort((a, b) => a - b);
 }
 
-/** The nearest sample index to t. */
-function nearestIndex(tH: number[], hours: number): number {
-  let index = 0;
-  let best = Infinity;
-  for (let i = 0; i < tH.length; i += 1) {
-    const delta = Math.abs(tH[i] - hours);
-    if (delta < best) {
-      best = delta;
-      index = i;
-    }
-  }
-  return index;
-}
-
-/** The series for one organ of one run, for its trace. */
-function seriesFor(trace: Trace, organ: FocusOrgan): number[] {
-  switch (organ) {
-    case "gut":
-      return trace.gut;
-    case "liver":
-    case "kidneys":
-      return trace.elim;
-    default:
-      return trace.conc;
-  }
+/** Down-sample a metric for drawing; the numbers on screen stay full-resolution. */
+function decimateMetric(
+  tH: number[],
+  seriesValues: number[][],
+  limit: number
+): { tH: number[]; values: number[][] } {
+  const combined = tH.map((_, i) => Math.max(...seriesValues.map((v) => v[i] ?? 0)));
+  const idx = sampleIndices(tH.length, limit, peakIndexOf(combined));
+  return {
+    tH: idx.map((i) => tH[i]),
+    values: seriesValues.map((vals) => idx.map((i) => vals[i])),
+  };
 }
 
 type OrganMetric = {
@@ -105,13 +92,42 @@ type OrganMetric = {
   label: string;
   /** One line, plain, on what this number is in the model. */
   basis: string;
-  /** Traces per medicine — one line each. */
-  traces: number[][];
-  /** The current value at the dial's hour, and the fill 0-1. */
-  now: (index: number) => { value: string; fill: number };
+  archetype?: {
+    label: string;
+    stage: string;
+    basis: string;
+    params: { name: string; val: string; live?: boolean; delta?: string }[];
+  };
+  /** The quantity the row prints, e.g. "mg/L" — the same one the graph draws. */
+  unit: string;
+  precision: number;
+  /** The organ's resting value, drawn as a dashed reference line. */
+  baseline: number | null;
+  /** Amounts that start at zero get a zero-based axis. */
+  zeroBased: boolean;
+  /** Decimated sample times, shared by every medicine's line. */
+  tH: number[];
+  /** One line per medicine, in this organ's own units. */
+  series: ChartSeries[];
+  /** Full-resolution value at an hour, across the treatment. */
+  at: (hours: number) => number;
+  /** The treatment's peak for this quantity, and when it happens. */
+  peak: { value: number; at: number } | null;
+  /** The row's headline number and bar fill at the dial's hour. */
+  now: (hours: number) => { value: string; unit: string; fill: number };
 };
 
-export default function OrganMonitor({ runs, hours, focus, onToggleFocus }: OrganMonitorProps) {
+export default function OrganMonitor({
+  runs,
+  hours,
+  focus,
+  onToggleFocus,
+  organProfiles,
+}: OrganMonitorProps) {
+  const heartProfile = useMemo(() => getHeartProfile(organProfiles?.heartId), [organProfiles?.heartId]);
+  const kidneyProfile = useMemo(() => getKidneyProfile(organProfiles?.kidneyId), [organProfiles?.kidneyId]);
+  const liverProfile = useMemo(() => getLiverProfile(organProfiles?.liverId), [organProfiles?.liverId]);
+  const lungProfile = useMemo(() => getLungProfile(organProfiles?.lungId), [organProfiles?.lungId]);
   const traces: Trace[] | null = useMemo(
     () =>
       runs?.map((r) => ({
@@ -125,104 +141,274 @@ export default function OrganMonitor({ runs, hours, focus, onToggleFocus }: Orga
 
   const peaks = useMemo(() => {
     if (!runs || runs.length === 0) return null;
-    const max = (fn: (r: SimResult) => number[]) =>
-      Math.max(...runs.map((r) => Math.max(...fn(r.result), 0)));
+    const max = (pick: (run: MedicationRun) => number[]) =>
+      Math.max(...runs.map((run) => Math.max(...pick(run), 0)));
     return {
-      concMgPerL: max((r) => r.concMgPerL),
-      eliminationMgPerH: max((r) => r.eliminationMgPerH),
-      gutMg: max((r) => r.gutMg),
+      concMgPerL: max((r) => r.result.concMgPerL),
+      eliminationMgPerH: max((r) => r.result.eliminationMgPerH),
+      gutMg: max((r) => r.result.gutMg),
     };
   }, [runs]);
 
+  /** The simulated window's end — the chart's x-axis limit. */
   const tEndH = traces && traces.length > 0 ? traces[0].tH[traces[0].tH.length - 1] : 0;
-  const position = tEndH > 0 ? Math.min(1, Math.max(0, hours / tEndH)) : 0;
-  const index = traces && traces.length > 0 ? nearestIndex(traces[0].tH, hours) : 0;
 
   const metrics: OrganMetric[] | null = useMemo(() => {
-    if (!traces || !peaks || !runs) return null;
-    const per = (pick: (trace: Trace) => number[]) =>
-      traces.map((tr) => decimate(pick(tr), MAX_TRACE_SAMPLES));
+    if (!traces || !peaks || !runs || traces.length === 0) return null;
+    const tAll = traces[0].tH;
+    const concAt = (t: number) => Math.max(...traces.map((tr) => valueAt(tr.conc, tr.tH, t)));
+    const elimAt = (t: number) => Math.max(...traces.map((tr) => valueAt(tr.elim, tr.tH, t)));
+    const gutAt = (t: number) => Math.max(...traces.map((tr) => valueAt(tr.gut, tr.tH, t)));
 
-    const blood = per((tr) => tr.conc);
-    const gut = per((tr) => tr.gut);
-    const elim = per((tr) => tr.elim);
-    // One combined fill, from the strongest mover — same rule as the shading.
-    const combinedFill = (pick: (trace: Trace) => number[], peak: number) => (i: number) =>
-      Math.min(1, pickAtMax(traces, pick)[i] / Math.max(peak, 1e-9));
-    const value = (pick: (trace: Trace) => number[]) => (i: number) =>
-      Math.max(...traces.map((tr) => pick(tr)[i] ?? 0));
+    /**
+     * One organ: the full-resolution series in that organ's own units, the
+     * decimated copy the chart draws, and the headline number.
+     *
+     * `full` is the same quantity as `format` — never a stress index on the
+     * chart while the row prints bpm.
+     */
+    const build = (
+      organ: FocusOrgan,
+      label: string,
+      basis: string,
+      unit: string,
+      precision: number,
+      baseline: number | null,
+      zeroBased: boolean,
+      full: number[][],
+      fill: (t: number) => number,
+      archetype?: OrganMetric["archetype"]
+    ): OrganMetric => {
+      const dec = decimateMetric(tAll, full, MAX_TRACE_SAMPLES);
+      const combined = tAll.map((_, i) => Math.max(...full.map((v) => v[i] ?? 0)));
+      const peakIdx = peakIndexOf(combined);
+      const peakValue = Math.max(...full.map((v) => Math.max(...v)));
+      const at = (t: number) => Math.max(...full.map((v) => valueAt(v, tAll, t)));
+      return {
+        organ,
+        label,
+        basis,
+        archetype,
+        unit,
+        precision,
+        baseline,
+        zeroBased,
+        tH: dec.tH,
+        series: dec.values.map((values, i) => ({
+          id: runs[i].id,
+          name: runs[i].name,
+          color: runs[i].color,
+          values,
+        })),
+        at,
+        peak: Number.isFinite(peakValue) ? { value: peakValue, at: tAll[peakIdx] } : null,
+        // A magnitude and its unit, side by side: the number is what changes.
+        now: (t: number) => ({ value: formatValue(at(t), precision), unit, fill: fill(t) }),
+      };
+    };
 
-    const bloodFill = combinedFill((tr) => tr.conc, peaks.concMgPerL);
-    const gutFill = combinedFill((tr) => tr.gut, peaks.gutMg);
-    const elimFill = combinedFill((tr) => tr.elim, peaks.eliminationMgPerH);
-    const bloodValue = value((tr) => tr.conc);
-    const gutValue = value((tr) => tr.gut);
-    const elimValue = value((tr) => tr.elim);
+    /** Bar fill: share of this organ's peak, never above 1. */
+    const share = (value: number, peak: number) =>
+      peak > 1e-9 ? Math.min(1, Math.max(0, value / peak)) : 0;
+
+    const heartFull = traces.map((tr) =>
+      tr.conc.map((c) => computeHeartDynamic(heartProfile, c, peaks.concMgPerL).currentHr)
+    );
+    const kidneyFull = traces.map((tr) =>
+      tr.conc.map((c) => computeKidneyDynamic(kidneyProfile, c, peaks.concMgPerL).currentEgfr)
+    );
+    const liverFull = traces.map((tr) =>
+      tr.elim.map((e) => computeLiverDynamic(liverProfile, e, peaks.eliminationMgPerH).currentAlt)
+    );
+    const lungFull = traces.map((tr) =>
+      tr.conc.map((c) => computeLungDynamic(lungProfile, c, peaks.concMgPerL).currentSpo2)
+    );
+
+    // The organ parameters at the dial's hour.
+    const heartDyn = computeHeartDynamic(heartProfile, concAt(hours), peaks.concMgPerL);
+    const kidneyDyn = computeKidneyDynamic(kidneyProfile, concAt(hours), peaks.concMgPerL);
+    const liverDyn = computeLiverDynamic(liverProfile, elimAt(hours), peaks.eliminationMgPerH);
+    const lungDyn = computeLungDynamic(lungProfile, concAt(hours), peaks.concMgPerL);
 
     return [
-      {
-        organ: "brain" as FocusOrgan,
-        label: "Brain",
-        basis: "blood reaching the brain — the model has no brain compartment and no barrier",
-        traces: blood,
-        now: () => ({
-          value: `${bloodValue(index).toFixed(2)} mg/L`,
-          fill: bloodFill(index),
-        }),
-      },
-      {
-        organ: "heart" as FocusOrgan,
-        label: "Heart",
-        basis: "blood in circulation — one blood pool, the heart is the frame",
-        traces: blood,
-        now: () => ({
-          value: `${bloodValue(index).toFixed(2)} mg/L`,
-          fill: bloodFill(index),
-        }),
-      },
-      {
-        organ: "lungs" as FocusOrgan,
-        label: "Lungs",
-        basis: "blood reaching the lungs — the same one shared pool",
-        traces: blood,
-        now: () => ({
-          value: `${bloodValue(index).toFixed(2)} mg/L`,
-          fill: bloodFill(index),
-        }),
-      },
-      {
-        organ: "liver" as FocusOrgan,
-        label: "Liver",
-        basis: "clearance at the liver — this is the total body clearance, not a liver-only figure",
-        traces: elim,
-        now: () => ({
-          value: `${elimValue(index).toFixed(2)} mg/h`,
-          fill: elimFill(index),
-        }),
-      },
-      {
-        organ: "kidneys" as FocusOrgan,
-        label: "Kidneys",
-        basis: "clearance at the kidneys — the same one clearance term, seen from the other end",
-        traces: elim,
-        now: () => ({
-          value: `${elimValue(index).toFixed(2)} mg/h`,
-          fill: elimFill(index),
-        }),
-      },
-      {
-        organ: "gut" as FocusOrgan,
-        label: "Gut",
-        basis: "left in the gut — the depot drains as it absorbs; not part of the modelled compartments",
-        traces: gut,
-        now: () => ({
-          value: `${gutValue(index).toFixed(1)} mg`,
-          fill: gutFill(index),
-        }),
-      },
+      build(
+        "brain",
+        "Brain",
+        "blood reaching the brain — the model has no brain compartment and no barrier",
+        "mg/L",
+        2,
+        null,
+        true,
+        traces.map((tr) => tr.conc),
+        (t) => share(concAt(t), peaks.concMgPerL)
+      ),
+      build(
+        "heart",
+        "Heart",
+        "cardiac response under circulating drug exposure — heart rate, contractility, and conduction/QT sensitivity",
+        "bpm",
+        0,
+        heartProfile.resting_heart_rate_bpm,
+        false,
+        heartFull,
+        (t) => computeHeartDynamic(heartProfile, concAt(t), peaks.concMgPerL).stress,
+        {
+          label: heartProfile.label,
+          stage: heartProfile.nyha_class !== "none" ? `NYHA Class ${heartProfile.nyha_class}` : "Healthy Baseline",
+          basis: heartProfile.basis,
+          params: [
+            {
+              name: "Heart Rate",
+              val: `${heartDyn.currentHr} bpm`,
+              live: true,
+              delta: heartDyn.deltaHr !== 0 ? `${heartDyn.deltaHr > 0 ? "+" : ""}${heartDyn.deltaHr}` : undefined,
+            },
+            {
+              name: "QT Interval",
+              val: `${heartDyn.currentQt} ms`,
+              live: true,
+              delta: heartDyn.deltaQt !== 0 ? `+${heartDyn.deltaQt}` : undefined,
+            },
+            {
+              name: "LVEF",
+              val: `${heartDyn.currentLvef}%`,
+              live: true,
+              delta: heartDyn.deltaLvef !== 0 ? `${heartDyn.deltaLvef}%` : undefined,
+            },
+            {
+              name: "Cardiac Output",
+              val: `${heartDyn.currentCo} L/min`,
+              live: true,
+            },
+            { name: "Mean Arterial BP", val: `${heartProfile.mean_arterial_pressure_mmhg} mmHg` },
+            { name: "Cardiotoxic Sens.", val: `${heartProfile.cardiotoxic_sensitivity_multiplier}x` },
+          ],
+        }
+      ),
+      build(
+        "lungs",
+        "Lungs",
+        "pulmonary gas exchange and airway response — SpO2 saturation, airway resistance, and respiratory drive",
+        "%",
+        0,
+        lungProfile.spo2_rest_pct,
+        false,
+        lungFull,
+        (t) => computeLungDynamic(lungProfile, concAt(t), peaks.concMgPerL).stress,
+        {
+          label: lungProfile.label,
+          stage: lungProfile.smoking_status === "never" ? "Non-smoker" : `${lungProfile.pack_years} pack-years`,
+          basis: lungProfile.basis,
+          params: [
+            {
+              name: "SpO2 Saturation",
+              val: `${lungDyn.currentSpo2}%`,
+              live: true,
+              delta: lungDyn.deltaSpo2 !== 0 ? `${lungDyn.deltaSpo2}%` : undefined,
+            },
+            {
+              name: "Respiratory Rate",
+              val: `${lungDyn.currentRr} bpm`,
+              live: true,
+              delta: lungDyn.deltaRr !== 0 ? `+${lungDyn.deltaRr}` : undefined,
+            },
+            {
+              name: "Airway Resistance",
+              val: `${lungDyn.currentAirwayResist}x`,
+              live: true,
+            },
+            { name: "FEV1 % pred", val: `${lungProfile.fev1_pct_predicted}%` },
+            { name: "FEV1 / FVC", val: `${lungProfile.fev1_fvc_ratio}` },
+            { name: "DLCO % pred", val: `${lungProfile.dlco_pct_predicted}%` },
+          ],
+        }
+      ),
+      build(
+        "liver",
+        "Liver",
+        "hepatic clearance and enzyme workload — active metabolic rate against functional CYP450 capacity",
+        "U/L",
+        0,
+        liverProfile.alt_u_l,
+        false,
+        liverFull,
+        (t) => computeLiverDynamic(liverProfile, elimAt(t), peaks.eliminationMgPerH).stress,
+        {
+          label: liverProfile.label,
+          stage: liverProfile.child_pugh_class !== "none" ? `Child-Pugh ${liverProfile.child_pugh_class}` : "Normal Hepatic Function",
+          basis: liverProfile.basis,
+          params: [
+            {
+              name: "ALT (SGPT)",
+              val: `${liverDyn.currentAlt} U/L`,
+              live: true,
+              delta: liverDyn.deltaAlt !== 0 ? `+${liverDyn.deltaAlt}` : undefined,
+            },
+            {
+              name: "AST (SGOT)",
+              val: `${liverDyn.currentAst} U/L`,
+              live: true,
+              delta: liverDyn.deltaAst !== 0 ? `+${liverDyn.deltaAst}` : undefined,
+            },
+            {
+              name: "Metabolic Load",
+              val: `${liverDyn.workloadPct}%`,
+              live: true,
+            },
+            { name: "Total Bilirubin", val: `${liverProfile.total_bilirubin_mg_dl} mg/dL` },
+            { name: "Clearance Scale", val: `${(liverProfile.clearance_scaling_factor * 100).toFixed(0)}%` },
+            { name: "Hepatotoxic Sens.", val: `${liverProfile.hepatotoxic_sensitivity_multiplier}x` },
+          ],
+        }
+      ),
+      build(
+        "kidneys",
+        "Kidneys",
+        "renal filtration and drug excretion — glomerular filtration rate (eGFR) and nephrotoxic filtration strain",
+        "mL/min",
+        1,
+        kidneyProfile.egfr_ml_min_1_73m2,
+        false,
+        kidneyFull,
+        (t) => computeKidneyDynamic(kidneyProfile, concAt(t), peaks.concMgPerL).stress,
+        {
+          label: kidneyProfile.label,
+          stage: kidneyProfile.ckd_stage,
+          basis: kidneyProfile.basis,
+          params: [
+            {
+              name: "eGFR Filtration",
+              val: `${kidneyDyn.currentEgfr} mL/min`,
+              live: true,
+              delta: kidneyDyn.deltaEgfr !== 0 ? `${kidneyDyn.deltaEgfr}` : undefined,
+            },
+            {
+              name: "Serum Creatinine",
+              val: `${kidneyDyn.currentCr} mg/dL`,
+              live: true,
+              delta: kidneyDyn.deltaCr !== 0 ? `+${kidneyDyn.deltaCr}` : undefined,
+            },
+            { name: "BUN", val: `${kidneyProfile.bun_mg_dl} mg/dL` },
+            { name: "Urine ACR", val: `${kidneyProfile.urine_acr_mg_g} mg/g` },
+            { name: "Clearance Scale", val: `${(kidneyProfile.clearance_scaling_factor * 100).toFixed(0)}%` },
+            { name: "Nephrotoxic Sens.", val: `${kidneyProfile.nephrotoxic_sensitivity_multiplier}x` },
+          ],
+        }
+      ),
+      build(
+        "gut",
+        "Gut",
+        "left in the gut — the depot drains as it absorbs; not part of the modelled compartments",
+        "mg",
+        1,
+        null,
+        true,
+        traces.map((tr) => tr.gut),
+        (t) => share(gutAt(t), peaks.gutMg)
+      ),
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [traces, peaks, hours, runs]);
+  }, [traces, peaks, hours, runs, heartProfile, kidneyProfile, liverProfile, lungProfile]);
 
   if (!metrics) {
     return (
@@ -251,7 +437,7 @@ export default function OrganMonitor({ runs, hours, focus, onToggleFocus }: Orga
 
       {metrics.map((metric) => {
         const isOn = focus === metric.organ;
-        const at = metric.now(index);
+        const at = metric.now(hours);
         return (
           <button
             key={metric.organ}
@@ -259,7 +445,8 @@ export default function OrganMonitor({ runs, hours, focus, onToggleFocus }: Orga
             onClick={() => onToggleFocus(isOn ? null : metric.organ)}
             aria-pressed={isOn}
             aria-label={`${isOn ? "Stop looking at" : "Look at"} the ${metric.label.toLowerCase()}`}
-            className={`group grid grid-cols-[92px_minmax(0,1fr)_54px] items-center gap-3 rounded-[10px] border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none ${
+            title={`${metric.label}: ${at.value} ${at.unit} at T+${hours.toFixed(1)} h · modelled strain ${(at.fill * 100).toFixed(0)}%`}
+            className={`group grid grid-cols-[88px_minmax(0,1fr)_60px] items-center gap-2.5 rounded-[10px] border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none ${
               isOn ? "border-brand/60 bg-brand/10" : "border-line bg-surface/40 hover:border-line-strong"
             }`}
           >
@@ -271,8 +458,12 @@ export default function OrganMonitor({ runs, hours, focus, onToggleFocus }: Orga
               >
                 {metric.label}
               </span>
-              <span className="mt-1 block font-mono text-[9px] leading-3 tracking-[0.08em] text-ink-3">
-                {metric.organ === "gut" ? "DRAINING" : "SATURATION"}
+              <span className="mt-1 block font-mono text-[9px] leading-3 tracking-[0.08em] text-ink-3 truncate max-w-[82px]">
+                {metric.organ === "gut"
+                  ? "DRAINING"
+                  : metric.archetype
+                    ? metric.archetype.stage
+                    : "SATURATION"}
               </span>
             </span>
 
@@ -283,56 +474,146 @@ export default function OrganMonitor({ runs, hours, focus, onToggleFocus }: Orga
                   style={{ transform: `scaleX(${Math.max(0.02, at.fill).toFixed(3)})` }}
                 />
               </span>
-              <svg viewBox={`0 0 ${TRACE_W} ${TRACE_H}`} className="mt-1.5 h-[36px] w-full" aria-hidden="true">
-                <line
-                  x1={0}
-                  x2={TRACE_W}
-                  y1={TRACE_H - 1}
-                  y2={TRACE_H - 1}
-                  stroke="var(--line)"
-                  strokeWidth={1}
+              <div className="mt-1.5">
+                <OrganChart
+                  compact
+                  series={metric.series}
+                  tH={metric.tH}
+                  tEndH={tEndH}
+                  hours={hours}
+                  unit={metric.unit}
+                  precision={metric.precision}
+                  baseline={metric.baseline}
+                  zeroBased={metric.zeroBased}
+                  ariaLabel={`${metric.label} over the simulated window`}
                 />
-                {metric.traces.map((trace, i) => (
-                  <path
-                    key={i}
-                    d={tracePath(trace)}
-                    fill="none"
-                    stroke={i === 0 ? "rgba(34, 211, 238, 0.9)" : "rgba(34, 211, 238, 0.45)"}
-                    strokeWidth={1.5}
-                    strokeLinejoin="round"
-                  />
-                ))}
-                <line
-                  x1={position * TRACE_W}
-                  x2={position * TRACE_W}
-                  y1={2}
-                  y2={TRACE_H - 2}
-                  stroke="var(--accent-fill)"
-                  strokeWidth={1}
-                  opacity={0.7}
-                />
-              </svg>
+              </div>
             </span>
 
             <span className="text-right">
-              <span className="block font-mono text-[13px] leading-4 tabular-nums text-ink">
+              <span className="block whitespace-nowrap font-mono text-[13px] leading-4 tabular-nums text-ink">
                 {at.value}
+              </span>
+              <span className="mt-0.5 block whitespace-nowrap font-mono text-[8px] uppercase leading-3 tracking-[0.06em] text-ink-3">
+                {at.unit}
               </span>
             </span>
           </button>
         );
       })}
 
-      <div className="rounded-[8px] border border-line bg-page/40 px-3 py-2">
-        <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink-3">
-          {focus ? "What this number is" : "Monitor"}
-        </p>
-        <p className="mt-1 text-[11px] leading-4 text-ink-2">
-          {focus
-            ? metrics.find((m) => m.organ === focus)?.basis
-            : "Levels are normalised against their own peak across the run; the gut's bar falls as it is absorbed. Click an organ to see it on its own — the rest of the body fades out — and again to bring the body back."}
-        </p>
-      </div>
+      {(() => {
+        const focusedMetric = focus ? metrics.find((m) => m.organ === focus) : null;
+        return (
+          <div className="rounded-[8px] border border-line bg-page/40 p-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink-3">
+                {focusedMetric ? `Focused: ${focusedMetric.label}` : "Monitor Overview"}
+              </p>
+              {focusedMetric?.archetype ? (
+                <span className="font-mono text-[9px] text-brand-text uppercase tracking-[0.1em]">
+                  {focusedMetric.archetype.stage}
+                </span>
+              ) : null}
+            </div>
+
+            <p className="text-[11px] leading-4 text-ink-2">
+              {focusedMetric
+                ? focusedMetric.basis
+                : "Every trace is drawn in the unit printed beside it, on one shared scale per organ, so two medicines can be compared. The gut's bar falls as it is absorbed. Click an organ for its axes, its peak and a hover readout — and again to bring the body back."}
+            </p>
+
+            {focusedMetric ? (
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {focusedMetric.series.map((line) => (
+                    <span key={line.id} className="flex items-center gap-1 font-mono text-[9px] text-ink-2">
+                      <span
+                        aria-hidden="true"
+                        className="inline-block h-[2px] w-3 rounded-full"
+                        style={{ backgroundColor: line.color }}
+                      />
+                      {line.name}
+                    </span>
+                  ))}
+                  <span className="ml-auto font-mono text-[9px] uppercase tracking-[0.1em] text-ink-3">
+                    {focusedMetric.unit}
+                  </span>
+                </div>
+
+                <div className="rounded-[6px] border border-line/70 bg-surface/40 px-1.5 pt-1">
+                  <OrganChart
+                    series={focusedMetric.series}
+                    tH={focusedMetric.tH}
+                    tEndH={tEndH}
+                    hours={hours}
+                    unit={focusedMetric.unit}
+                    precision={focusedMetric.precision}
+                    baseline={focusedMetric.baseline}
+                    zeroBased={focusedMetric.zeroBased}
+                    ariaLabel={`${focusedMetric.label}: ${focusedMetric.unit} over ${tEndH.toFixed(0)} hours, one line per medicine`}
+                  />
+                </div>
+
+                {focusedMetric.peak ? (
+                  <p className="flex flex-wrap items-baseline gap-x-2 font-mono text-[9px] tabular-nums text-ink-3">
+                    <span>
+                      Peak{" "}
+                      <span className="text-ink-2">
+                        {formatValue(focusedMetric.peak.value, focusedMetric.precision)}{" "}
+                        {focusedMetric.unit}
+                      </span>{" "}
+                      at T+{focusedMetric.peak.at.toFixed(1)} h
+                    </span>
+                    {focusedMetric.baseline != null ? (
+                      <span>
+                        · resting{" "}
+                        {formatValue(focusedMetric.baseline, focusedMetric.precision)}{" "}
+                        {focusedMetric.unit}
+                      </span>
+                    ) : null}
+                    <span className="ml-auto">
+                      now {formatValue(focusedMetric.at(hours), focusedMetric.precision)}{" "}
+                      {focusedMetric.unit}
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {focusedMetric?.archetype ? (
+              <div className="pt-2 border-t border-line/60">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-3">
+                    Profile: {focusedMetric.archetype.label}
+                  </p>
+                  <span className="font-mono text-[9px] text-brand-text px-1.5 py-0.2 rounded border border-brand/40 bg-brand/10">
+                    Live at T+{hours.toFixed(1)}h
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1 text-[10px] font-mono">
+                  {focusedMetric.archetype.params.map((p) => (
+                    <div key={p.name} className="flex justify-between items-center rounded bg-surface/60 px-1.5 py-1">
+                      <span className="text-ink-3">{p.name}:</span>
+                      <span className="font-semibold text-ink flex items-center gap-1">
+                        {p.val}
+                        {p.delta ? (
+                          <span className="text-brand-text text-[9px] font-bold">
+                            ({p.delta})
+                          </span>
+                        ) : null}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[9px] text-ink-3 italic">
+                  Basis: {focusedMetric.archetype.basis}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        );
+      })()}
     </div>
   );
 }

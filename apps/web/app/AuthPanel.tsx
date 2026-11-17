@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { createDataClient, type DataClient } from "@dib/data-client";
+import type { DataClient } from "@dib/data-client";
+import { getDataClient } from "@/lib/data-client";
 
 type SessionState = { userId: string | null; email: string | null } | null;
 
@@ -23,9 +24,8 @@ export default function AuthPanel() {
   useEffect(() => {
     if (mounted.current) return;
     mounted.current = true;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !anonKey || anonKey.startsWith("paste-")) {
+    const existing = getDataClient();
+    if (!existing) {
       setNotice(
         "Sign-in is not configured yet (missing Supabase URL or anon key)."
       );
@@ -33,7 +33,7 @@ export default function AuthPanel() {
     }
     let unsub: (() => void) | null = null;
     try {
-      const c = createDataClient({ supabaseUrl, supabaseAnonKey: anonKey });
+      const c = existing;
       setClient(c);
       void c.auth.getSession().then(({ data }) => {
         if (data) setSession(data.session);

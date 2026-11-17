@@ -113,6 +113,37 @@ function parseHit(row: SearchRow): DrugCatalogHit | null {
   };
 }
 
+/**
+ * The medicines that can actually be simulated right now: ingredients whose
+ * approved row carries all four parameters and a citation for each.
+ *
+ * `pk_status` is maintained by the database (see refresh_drug_pk_status), so
+ * this is the same test the simulator applies, not a second opinion. Without
+ * this list the console can only offer "search and hope" — the catalogue holds
+ * thousands of ingredients and a handful are ready.
+ */
+export async function listReadyDrugs(
+  limit: number,
+  backend: DataBackend
+): Promise<DataClientResult<DrugCatalogHit[]>> {
+  return wrap(async () => {
+    let res: { data: unknown; error: unknown };
+    try {
+      res = await backend
+        .from('drugs')
+        .select('id,name,routes,pk_status,product_count')
+        .eq('pk_status', 'reviewed')
+        .order('product_count', { ascending: false })
+        .limit(Math.min(Math.max(limit, 1), 50));
+    } catch (e) {
+      return { data: null, error: mapSupabaseError(e) };
+    }
+    if (res.error) return { data: null, error: mapSupabaseError(res.error) };
+    const rows = Array.isArray(res.data) ? (res.data as SearchRow[]) : [];
+    return { data: rows.map(parseHit).filter((h): h is DrugCatalogHit => h !== null), error: null };
+  });
+}
+
 /** Catalogue search backed by the `search_drugs` RPC (trigram, relevance-ordered). */
 export async function searchDrugs(
   q: string,

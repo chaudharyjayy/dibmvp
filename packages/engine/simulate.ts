@@ -1,4 +1,5 @@
 import { SimInput, SimResult, DoseEvent, Drug } from './types';
+import { computeOrganAdjustments } from './organProfiles';
 
 const kaOf = (drug: Drug): number | null => drug.ka_per_h;
 const fOf = (drug: Drug): number | null => drug.F;
@@ -98,7 +99,18 @@ export function simulate(input: SimInput): SimResult {
 
   // ---- model parameters (per-kg scaling, see header comment) ---------------
   const V = vPerKg * profile.weightKg; // L
-  const CL = clPerKg * profile.weightKg; // L/h
+  let CL = clPerKg * profile.weightKg; // L/h
+
+  if (profile.organProfiles) {
+    const { clearanceMultiplier, hepaticFactor, renalFactor } = computeOrganAdjustments(profile.organProfiles);
+    if (Math.abs(clearanceMultiplier - 1.0) > 1e-4) {
+      CL *= clearanceMultiplier;
+      warnings.push(
+        `Clearance scaled by ${(clearanceMultiplier * 100).toFixed(0)}% based on organ profiles (hepatic: ${(hepaticFactor * 100).toFixed(0)}%, renal: ${(renalFactor * 100).toFixed(0)}%).`
+      );
+    }
+  }
+
   const ke = CL / V; // 1/h
 
   // ---- integration --------------------------------------------------------

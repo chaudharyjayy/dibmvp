@@ -1,7 +1,10 @@
+import type { OrganProfileSelection } from './organProfilesTypes';
+
 export interface BodyProfile {
   ageYears: number;
   weightKg: number;
   sex: 'M' | 'F' | 'other';
+  organProfiles?: OrganProfileSelection;
 }
 
 export interface DoseEvent {

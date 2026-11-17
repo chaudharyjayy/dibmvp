@@ -22,6 +22,7 @@ import { getProfile, saveProfile } from './profile';
 import {
   getDrugCitations,
   getDrugPk,
+  listReadyDrugs,
   searchDrugs,
   type DrugCatalogHit,
   type DrugParameterCitation,
@@ -99,6 +100,8 @@ export interface DataClient {
     getDrugPk(drugId: string): Promise<{ data: DrugPkRow | null; error: { code: string; message: string } | null }>;
     /** The citation behind each value of an approved drug's parameters. */
     getDrugCitations(drugId: string): Promise<{ data: DrugParameterCitation[] | null; error: { code: string; message: string } | null }>;
+    /** Every ingredient that is simulatable today (all four parameters cited). */
+    listReadyDrugs(limit?: number): Promise<{ data: DrugCatalogHit[] | null; error: { code: string; message: string } | null }>;
   };
 }
 
@@ -173,6 +176,7 @@ export function createDataClient(args: {
       searchDrugs: (q: string, limit?: number) => withData(() => searchDrugs(q, limit ?? 20, backend)),
       getDrugPk: (drugId: string) => withData(() => getDrugPk(drugId, backend)),
       getDrugCitations: (drugId: string) => withData(() => getDrugCitations(drugId, backend)),
+      listReadyDrugs: (limit?: number) => withData(() => listReadyDrugs(limit ?? 20, backend)),
     },
   };
 }
@@ -207,6 +211,7 @@ function failedClient(error: { code: string; message: string }): DataClient {
       searchDrugs: async () => err,
       getDrugPk: async () => err,
       getDrugCitations: async () => err,
+      listReadyDrugs: async () => err,
     },
   };
 }

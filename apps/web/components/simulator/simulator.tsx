@@ -22,11 +22,13 @@ import { ArrowLeft, Download, Save } from "lucide-react";
 import {
   simulate,
   buildReport,
+  getDefaultOrganProfiles,
   type SimResult,
   type BodyProfile,
   type DoseEvent,
 } from "@dib/engine";
-import { createDataClient, type DataClient } from "@dib/data-client";
+import type { DataClient } from "@dib/data-client";
+import { getDataClient } from "@/lib/data-client";
 import type { BrainRegion } from "@/components/anatomy/regions";
 import SimulatorConsole, { type SimulatorInput } from "./console";
 import TimeDial, { type DialSource } from "./time-dial";
@@ -59,6 +61,7 @@ const DEFAULT_INPUT: SimulatorInput = {
   sex: "other",
   drugs: [],
   tEndH: 48,
+  organProfiles: getDefaultOrganProfiles(),
 };
 
 /** The organ's name, for the label over the model. */
@@ -125,12 +128,10 @@ export default function Simulator() {
   const profileLoadedRef = React.useRef(false);
 
   React.useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !key || key.startsWith("paste-")) return;
+    const c = getDataClient();
+    if (!c) return;
     let unsub: (() => void) | null = null;
     try {
-      const c = createDataClient({ supabaseUrl: url, supabaseAnonKey: key });
       setClient(c);
       void c.auth.getSession().then(({ data }) => {
         if (data?.session?.email) setSignedInEmail(data.session.email);
@@ -249,6 +250,7 @@ export default function Simulator() {
       ageYears: active.ageYears,
       weightKg: active.weightKg,
       sex: toEngineSex(active.sex),
+      organProfiles: active.organProfiles,
     };
     try {
       const out: MedicationRun[] = [];
@@ -809,6 +811,7 @@ export default function Simulator() {
                   hours={hours}
                   focus={monitorFocus}
                   onToggleFocus={(organ) => setMonitorFocus(organ)}
+                  organProfiles={active.organProfiles}
                 />
               </div>
             ) : null}
