@@ -23,6 +23,7 @@
   --color-ink-3: var(--ink-3);
   --color-brand: var(--accent-fill);
   --color-brand-text: var(--accent-text);
+  --color-button-ink: var(--button-ink);
   --color-warn: var(--warn);
   --color-figure-base: var(--figure-base);
   --color-figure-edge: var(--figure-edge);
@@ -79,15 +80,16 @@ html {
 }
 
 :root {
-  /* Landing tokens — dark sci-fi HUD. The page reads as a dark instrument
-     panel: a deep blue-black base, raised surfaces, a cyan accent for the
-     one interactive thing on screen (the dial), and amber reserved for
-     interaction warnings. --warn must never be used as decoration.
+  /* Landing tokens — dark sci-fi HUD by default. The page reads as a dark
+     instrument panel: a deep blue-black base, raised surfaces, a cyan/blue
+     accent for the interactive chrome, and amber reserved for interaction
+     warnings. --warn must never be used as decoration.
      Every text pair below was checked against WCAG AA:
        ink/bg 17.4:1, ink-2/bg 9.9:1, ink-3/bg 6.1:1,
-       accent-text/bg 13.9:1, warn/bg 9.4:1, button-ink/accent 10.5:1.
+       accent-text/bg 8.6:1, warn/bg 9.4:1, button-ink/accent 10.5:1.
      --line is a decorative hairline; --line-strong is for boundaries that
-     carry meaning (the dial track), and clears 3:1 on both backgrounds. */
+     carry meaning (the dial track), and clears 3:1 on both backgrounds.
+     The .light block below mirrors every one of these tokens. */
   --bg: #05070c;
   --surface: #0c1119;
   --surface-2: #111825;
@@ -97,15 +99,35 @@ html {
   --ink-2: #a7b8cc;
   --ink-3: #7d8fa5;
   --accent-fill: #22d3ee;
-  --accent-text: #67e8f9;
+  --accent-text: #60a5fa;
   --warn: #f59e0b;
   --figure-base: #b8cce4;
   --figure-edge: #7fa6d9;
+  --button-ink: #04121a;
 
-  /* Background layers for the HUD backdrop. */
+  /* HUD texture colours. Every previously hard-coded panel colour lives here
+     so the light theme can flip the backdrop without touching the rules. */
+  --hud-bg-0: #05070c;
+  --hud-bg-1: #070b13;
   --hud-glow-a: rgba(34, 211, 238, 0.11);
   --hud-glow-b: rgba(37, 99, 235, 0.14);
   --hud-grid-line: rgba(125, 196, 222, 0.06);
+  --hud-scanline: rgba(190, 235, 255, 0.022);
+  --hud-vignette: rgba(0, 0, 0, 0.72);
+  --hud-scan-a: rgba(34, 211, 238, 0.06);
+  --hud-scan-b: rgba(103, 232, 249, 0.5);
+  --hud-scan-c: rgba(103, 232, 249, 0.9);
+  --hud-scan-blend: screen;
+  --hud-panel-inset: rgba(103, 232, 249, 0.05);
+  --hud-panel-glow: rgba(34, 211, 238, 0.07);
+  --hud-aura-1: rgba(217, 70, 239, 0.3);
+  --hud-aura-2: rgba(124, 58, 237, 0.22);
+  --hud-aura-3: rgba(34, 211, 238, 0.05);
+  --hud-orbit: rgba(125, 211, 252, 0.34);
+  --hud-orbit-inner: rgba(125, 211, 252, 0.16);
+  --accent-glow: rgba(34, 211, 238, 0.65);
+  --accent-glow-strong: rgba(34, 211, 238, 0.9);
+  --accent-wash: rgba(34, 211, 238, 0.16);
 
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -139,9 +161,15 @@ html {
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  color-scheme: dark;
 }
 
 .dark {
+  /* The landing/HUD raw tokens are inherited from :root unchanged — only
+     shadcn's semantic tokens need a dark override here. Together they make
+     .dark a complete reproduction of the dark baseline. */
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -176,6 +204,93 @@ html {
 }
 
 /* ------------------------------------------------------------------ */
+/* Light theme                                                         */
+/* ------------------------------------------------------------------ */
+
+/* Exactly two themes: :root/.dark above and .light here. The provider keeps
+   only one of those classes on <html> at a time. Every token the dark baseline
+   defines is mirrored here, so Tailwind utilities (bg-page, text-ink,
+   border-line, text-brand-text, …) and the HUD layers flip together. */
+:root.light,
+.light {
+  color-scheme: light;
+
+  /* White paper, green accent, near-black type. */
+  --bg: #ffffff;
+  --surface: #f5f8f6;
+  --surface-2: #e9f0ec;
+  --line: #d3ded7;
+  --line-strong: #6b8f7a;
+  --ink: #0b120e;
+  --ink-2: #33443a;
+  --ink-3: #53685b;
+  --accent-fill: #16a34a;
+  --accent-text: #15803d;
+  --warn: #b45309;
+  --figure-base: #d8e6dc;
+  --figure-edge: #4d8c68;
+  --button-ink: #052e16;
+
+  /* Light HUD texture: white panel, green glows, a dark grid and a multiply
+     scan so the sweep stays legible on a light background. */
+  --hud-bg-0: #ffffff;
+  --hud-bg-1: #f2f7f3;
+  --hud-glow-a: rgba(22, 163, 74, 0.09);
+  --hud-glow-b: rgba(16, 185, 129, 0.07);
+  --hud-grid-line: rgba(21, 128, 61, 0.1);
+  --hud-scanline: rgba(15, 83, 41, 0.045);
+  --hud-vignette: rgba(255, 255, 255, 0.5);
+  --hud-scan-a: rgba(22, 163, 74, 0.04);
+  --hud-scan-b: rgba(22, 163, 74, 0.18);
+  --hud-scan-c: rgba(22, 163, 74, 0.32);
+  --hud-scan-blend: multiply;
+  --hud-panel-inset: rgba(21, 128, 61, 0.06);
+  --hud-panel-glow: rgba(22, 163, 74, 0.08);
+  --hud-aura-1: rgba(34, 197, 94, 0.12);
+  --hud-aura-2: rgba(16, 185, 129, 0.1);
+  --hud-aura-3: rgba(22, 163, 74, 0.05);
+  --hud-orbit: rgba(21, 128, 61, 0.28);
+  --hud-orbit-inner: rgba(21, 128, 61, 0.14);
+  --accent-glow: rgba(22, 163, 74, 0.35);
+  --accent-glow-strong: rgba(22, 163, 74, 0.5);
+  --accent-wash: rgba(22, 163, 74, 0.12);
+
+  /* shadcn semantic tokens return to their light values; .dark overrides the
+     :root defaults whenever that class is present. */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+/* ------------------------------------------------------------------ */
 /* HUD backdrop                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -202,7 +317,7 @@ html {
   background:
     radial-gradient(1100px 760px at 76% 8%, var(--hud-glow-a), transparent 62%),
     radial-gradient(900px 700px at 10% 82%, var(--hud-glow-b), transparent 64%),
-    linear-gradient(180deg, #05070c 0%, #070b13 42%, #05070c 100%);
+    linear-gradient(180deg, var(--hud-bg-0) 0%, var(--hud-bg-1) 42%, var(--hud-bg-0) 100%);
 }
 
 /*
@@ -234,7 +349,7 @@ html {
   inset: 0;
   background: repeating-linear-gradient(
     to bottom,
-    rgba(190, 235, 255, 0.022) 0 1px,
+    var(--hud-scanline) 0 1px,
     transparent 1px 3px
   );
 }
@@ -242,7 +357,7 @@ html {
 .hud-vignette {
   position: absolute;
   inset: 0;
-  box-shadow: inset 0 0 240px rgba(0, 0, 0, 0.72);
+  box-shadow: inset 0 0 240px var(--hud-vignette);
 }
 
 /* Corner brackets: the HUD frame around the figure. */
@@ -282,11 +397,11 @@ html {
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(34, 211, 238, 0.06) 55%,
-    rgba(103, 232, 249, 0.5) 92%,
-    rgba(103, 232, 249, 0.9) 100%
+    var(--hud-scan-a) 55%,
+    var(--hud-scan-b) 92%,
+    var(--hud-scan-c) 100%
   );
-  mix-blend-mode: screen;
+  mix-blend-mode: var(--hud-scan-blend);
   opacity: 0;
   animation: hud-scan 7s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
@@ -358,7 +473,7 @@ html {
     -50%,
     0
   );
-  box-shadow: 0 0 12px rgba(34, 211, 238, 0.65);
+  box-shadow: 0 0 12px var(--accent-glow);
   transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -400,10 +515,10 @@ html {
 @keyframes sim-handle {
   0%,
   100% {
-    box-shadow: 0 0 12px rgba(34, 211, 238, 0.65);
+    box-shadow: 0 0 12px var(--accent-glow);
   }
   50% {
-    box-shadow: 0 0 20px rgba(34, 211, 238, 0.9);
+    box-shadow: 0 0 20px var(--accent-glow-strong);
   }
 }
 
@@ -415,7 +530,7 @@ html {
   background-image: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(34, 211, 238, 0.16) 50%,
+    var(--accent-wash) 50%,
     transparent 100%
   );
   background-size: 45% 100%;
@@ -451,8 +566,8 @@ html {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   box-shadow:
-    inset 0 0 0 1px rgba(103, 232, 249, 0.05),
-    0 0 32px rgba(34, 211, 238, 0.07);
+    inset 0 0 0 1px var(--hud-panel-inset),
+    0 0 32px var(--hud-panel-glow);
 }
 
 /* Two corner ticks on each panel — short L strokes, not a full frame. */
@@ -490,8 +605,8 @@ html {
   transform: translate(-50%, -50%);
   pointer-events: none;
   background:
-    radial-gradient(ellipse 66% 56% at 50% 42%, rgba(217, 70, 239, 0.3), transparent 66%),
-    radial-gradient(ellipse 46% 38% at 50% 46%, rgba(124, 58, 237, 0.22), rgba(34, 211, 238, 0.05) 64%, transparent 80%);
+    radial-gradient(ellipse 66% 56% at 50% 42%, var(--hud-aura-1), transparent 66%),
+    radial-gradient(ellipse 46% 38% at 50% 46%, var(--hud-aura-2), var(--hud-aura-3) 64%, transparent 80%);
 }
 .hud-orbit {
   position: absolute;
@@ -501,7 +616,7 @@ html {
   height: 780px;
   transform: translate(-50%, -50%);
   border-radius: 9999px;
-  border: 1px dashed rgba(125, 211, 252, 0.34);
+  border: 1px dashed var(--hud-orbit);
   pointer-events: none;
 }
 .hud-orbit::after {
@@ -509,7 +624,7 @@ html {
   position: absolute;
   inset: 16px;
   border-radius: 9999px;
-  border: 1px solid rgba(125, 211, 252, 0.16);
+  border: 1px solid var(--hud-orbit-inner);
 }
 @keyframes hud-orbit {
   from { transform: rotate(0deg); }

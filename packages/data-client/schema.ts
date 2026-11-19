@@ -50,11 +50,19 @@ export const ReportWarningSchema = z
   })
   .strict();
 
+export const ModelScenarioSchema = z
+  .object({
+    id: z.enum(['baseline', 'reduced', 'further-reduced']),
+    clearanceMultiplier: z.number().min(0.01).max(1),
+  })
+  .strict();
+
 export const ReportMetricsSchema = z
   .object({
     cmaxMgPerL: z.number().min(0),
     tmaxH: z.number().min(0),
     timeToClearH: z.number().min(0).nullable(),
+    modelScenario: ModelScenarioSchema.optional(),
   })
   .strict();
 

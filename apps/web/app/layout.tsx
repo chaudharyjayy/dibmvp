@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Chakra_Petch, Geist, IBM_Plex_Mono } from "next/font/google";
 import Disclaimer from "@/components/disclaimer";
+import { ThemeProvider } from "@/components/theme/theme-provider";
+import ThemeSwitch from "@/components/theme/theme-switch";
 import "./globals.css";
 
 const sans = Geist({
@@ -45,19 +47,43 @@ export const viewport: Viewport = {
   ],
 };
 
+/**
+ * Runs in <head> before the first paint so a saved light preference never
+ * flashes the dark default. Static string: no user data is interpolated.
+ */
+const themeBootstrap = `
+(function () {
+  try {
+    var saved = window.localStorage.getItem("dib-theme");
+    var useLight = saved === "light";
+    var root = document.documentElement;
+    root.classList.toggle("light", useLight);
+    root.classList.toggle("dark", !useLight);
+    root.style.colorScheme = useLight ? "light" : "dark";
+  } catch (error) {}
+})();
+`;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${sans.variable} ${display.variable} ${mono.variable} h-full antialiased`}
+      className={`${sans.variable} ${display.variable} ${mono.variable} h-full antialiased dark`}
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+      </head>
       {/*
         pb-12 / md:pb-10 reserves room for the fixed disclaimer (48px on
         mobile, 40px from md up) so it never covers page content.
       */}
       <body className="flex min-h-full flex-col pb-12 md:pb-10">
-        {children}
-        <Disclaimer />
+        <ThemeProvider>
+          <ThemeSwitch />
+          {children}
+          <Disclaimer />
+        </ThemeProvider>
       </body>
     </html>
   );

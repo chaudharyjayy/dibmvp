@@ -2,15 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { parsePrescription } from "../components/simulator/prescription";
 
+// Dose rows hold text so a box the visitor clears stays empty. The parser
+// writes the same text the input shows; the engine parses it on Run.
 describe("parsePrescription", () => {
   it("parses amount, interval and count", () => {
     const parsed = parsePrescription("200 mg every 8 h for 3 doses");
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.doses).toEqual([
-      { timeH: 0, doseMg: 200 },
-      { timeH: 8, doseMg: 200 },
-      { timeH: 16, doseMg: 200 },
+      { timeH: "0", doseMg: "200" },
+      { timeH: "8", doseMg: "200" },
+      { timeH: "16", doseMg: "200" },
     ]);
     // The smallest window that covers the last dose.
     expect(parsed.tEndH).toBe(24);
@@ -21,7 +23,7 @@ describe("parsePrescription", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.doses).toHaveLength(3);
-    expect(parsed.doses[2]).toEqual({ timeH: 16, doseMg: 250 });
+    expect(parsed.doses[2]).toEqual({ timeH: "16", doseMg: "250" });
   });
 
   it("parses explicit times", () => {
@@ -29,9 +31,9 @@ describe("parsePrescription", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.doses).toEqual([
-      { timeH: 0, doseMg: 100 },
-      { timeH: 6, doseMg: 100 },
-      { timeH: 12, doseMg: 100 },
+      { timeH: "0", doseMg: "100" },
+      { timeH: "6", doseMg: "100" },
+      { timeH: "12", doseMg: "100" },
     ]);
     expect(parsed.tEndH).toBe(12);
   });
@@ -40,7 +42,7 @@ describe("parsePrescription", () => {
     const parsed = parsePrescription("500 mg once");
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.doses).toEqual([{ timeH: 0, doseMg: 500 }]);
+    expect(parsed.doses).toEqual([{ timeH: "0", doseMg: "500" }]);
     expect(parsed.tEndH).toBe(12);
   });
 
@@ -48,14 +50,14 @@ describe("parsePrescription", () => {
     const parsed = parsePrescription("500 mg");
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.doses).toEqual([{ timeH: 0, doseMg: 500 }]);
+    expect(parsed.doses).toEqual([{ timeH: "0", doseMg: "500" }]);
   });
 
   it("widens the window to cover the schedule", () => {
     const parsed = parsePrescription("100 mg every 24 h for 3 doses");
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.doses[parsed.doses.length - 1].timeH).toBe(48);
+    expect(parsed.doses[parsed.doses.length - 1].timeH).toBe("48");
     expect(parsed.tEndH).toBe(48);
   });
 
@@ -85,7 +87,7 @@ describe("parsePrescription", () => {
     const parsed = parsePrescription("50 mg every 4 h for 6 doses");
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.doses.every((row) => row.doseMg === 50)).toBe(true);
-    expect(parsed.doses.map((row) => row.timeH)).toEqual([0, 4, 8, 12, 16, 20]);
+    expect(parsed.doses.every((row) => row.doseMg === "50")).toBe(true);
+    expect(parsed.doses.map((row) => row.timeH)).toEqual(["0", "4", "8", "12", "16", "20"]);
   });
 });

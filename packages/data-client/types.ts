@@ -29,10 +29,18 @@ export interface ReportWarning {
   note: string;
 }
 
+/** The model setting behind a saved run; absent on reports saved before it. */
+export interface ModelScenario {
+  id: 'baseline' | 'reduced' | 'further-reduced';
+  clearanceMultiplier: number;
+}
+
 export interface ReportMetrics {
   cmaxMgPerL: number;
   tmaxH: number;
   timeToClearH: number | null;
+  /** The what-if used for these numbers, stored with them in the jsonb column. */
+  modelScenario?: ModelScenario;
 }
 
 /** Exactly what the engine produces — no names, no free-text medical notes. */

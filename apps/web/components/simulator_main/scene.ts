@@ -1,0 +1,735 @@
+/**
+ * The simulator's anatomy scene: the model, framed on the organs a condition
+ * touches.
+ *
+ * The landing figure shows the whole body turning. The simulator does the
+ * opposite: the body is still, and the camera moves to whichever organ the
+ * current step is about, so the folds and the vessels are readable.
+ *
+ * The organ levels are the engine's own numbers — the concentration in the
+ * blood, the amount in the gut, the elimination rate — read at the time the
+ * dial is on. Nothing here invents a value.
+ */
+
+import * as THREE from "three";
+import { loadAnatomyModel, type PartAnchor } from "@/components/anatomy/model";
+import { baseFor, isolationOf, type IsolationGroup } from "@/components/anatomy/contract";
+import {
+  BODY_FRAGMENT,
+  BODY_VERTEX,
+  BRAIN_FRAGMENT,
+  BRAIN_VERTEX,
+  ORGAN_FRAGMENT,
+  ORGAN_VERTEX,
+} from "@/components/anatomy/shaders";
+import { regionOf, type BrainRegion } from "@/components/anatomy/regions";
+import { BRAIN_PART_NAMES } from "@/components/anatomy/part-names";
+
+/** The organs the simulator can focus on. */
+export type FocusOrgan = "brain" | "heart" | "lungs" | "liver" | "kidneys" | "gut";
+
+export type SimulatorSceneOptions = {
+  reducedMotion?: boolean;
+  maxDpr?: number;
+  onStatus?: (status: "loading" | "ready" | "error") => void;
+  /** Called when the pointer lands on a part of the brain. */
+  onBrainRegion?: (region: BrainRegion | null) => void;
+  /** Called when the pointer lands on any organ, for its live data readout. */
+  onOrganHover?: (hover: { organ: FocusOrgan; x: number; y: number } | null) => void;
+};
+
+export type SimulatorScene = {
+  /** The organ levels, by organ, from 0 to 1. */
+  setLevels(levels: Record<string, number>): void;
+  /** Lights the organ the walkthrough is about. */
+  setFocus(organ: FocusOrgan | null): void;
+  /**
+   * Shows one organ on its own: the body and everything else fades out,
+   * and that organ stays. The camera is framed by focusOrgan. Passing a
+   * gut — the model has no gut mesh — or null brings the body back.
+   */
+  setIsolation(organ: FocusOrgan | null): void;
+  /** Stops the render loop while the canvas is out of sight. */
+  setPaused(paused: boolean): void;
+  /** Moves the camera to an organ, or back to the whole body for null. */
+  focusOrgan(organ: FocusOrgan | null, immediate?: boolean): void;
+  /** Where the focused organ is on the canvas, in CSS pixels. */
+  getFocusPoint(): { x: number; y: number } | null;
+  /** The brain region under the pointer, and where it is on the canvas. */
+  getBrainRegion(): { region: BrainRegion; x: number; y: number } | null;
+  /** Shows the model's failed state (pale tissue, no drug tint). */
+  setDead(dead: boolean): void;
+  /** Whether the model has loaded. */
+  isReady(): boolean;
+  dispose(): void;
+};
+
+const CAMERA_FOV = 32;
+const BODY_COLOR = 0x4fb8ff;
+const TINT = 0x22d3ee;
+const BRAIN_COLOR = 0x9e4d4d;
+
+/**
+ * The 3D scene follows the same Light/Dark switch as the rest of the app.
+ * The class lives on <html>, so the scene observes it rather than depending
+ * on the theme provider — every scene instance stays in sync on its own.
+ *
+ * The dead palette is shared by both themes: tissue goes pale and the drug
+ * tint is dropped, so a failed model reads at a glance.
+ */
+type Palette = {
+  body: number;
+  tint: number;
+  brain: number;
+  sky: number;
+  ground: number;
+  key: number;
+};
+const PALETTES: Record<"light" | "dark" | "dead", Palette> = {
+  dark: {
+    body: 0x4fb8ff,
+    tint: 0x22d3ee,
+    brain: 0x9e4d4d,
+    sky: 0xbcd8ff,
+    ground: 0x0a1420,
+    key: 0xd8ecff,
+  },
+  light: {
+    body: 0x2f9e6f,
+    tint: 0x16a34a,
+    brain: 0xa06a6a,
+    sky: 0xffffff,
+    ground: 0xcdebd9,
+    key: 0xffffff,
+  },
+  dead: {
+    body: 0x71777f,
+    tint: 0x4b5563,
+    brain: 0x6b5555,
+    sky: 0xb9c0c8,
+    ground: 0x282c31,
+    key: 0xd6d9dd,
+  },
+};
+
+/** Raw sRGB components — custom shaders write straight to the framebuffer. */
+function srgb(hex: number): THREE.Color {
+  return new THREE.Color().setRGB(
+    ((hex >> 16) & 255) / 255,
+    ((hex >> 8) & 255) / 255,
+    (hex & 255) / 255
+  );
+}
+
+/** How far back the camera sits to frame a part of the given size. */
+function frameDistance(radius: number): number {
+  // The camera's vertical field of view, in radians.
+  const half = (CAMERA_FOV * Math.PI) / 360;
+  // A part fills about half the frame, so the distance is roughly three
+  // radii out along the view axis.
+  return Math.max(0.55, (radius * 3.2) / Math.tan(half));
+}
+
+export function createSimulatorScene(
+  canvas: HTMLCanvasElement,
+  options: SimulatorSceneOptions = {}
+): SimulatorScene {
+  const reducedMotion = options.reducedMotion ?? false;
+  const maxDpr = options.maxDpr ?? 2;
+
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    alpha: true,
+    powerPreference: "high-performance",
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxDpr));
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.05, 100);
+  camera.position.set(0, 0, 6.4);
+
+  const hemisphere = new THREE.HemisphereLight(0xbcd8ff, 0x0a1420, 0.7);
+  scene.add(hemisphere);
+  const directional = new THREE.DirectionalLight(0xd8ecff, 1.1);
+  directional.position.set(3, 5, 4);
+  scene.add(directional);
+
+  const bodyMaterial = new THREE.ShaderMaterial({
+    vertexShader: BODY_VERTEX,
+    fragmentShader: BODY_FRAGMENT,
+    uniforms: {
+      uColor: { value: srgb(BODY_COLOR) },
+      uScan: { value: 1.65 },
+      uFade: { value: 1 },
+    },
+    transparent: true,
+    depthWrite: false,
+  });
+
+  const brainMaterial = new THREE.ShaderMaterial({
+    vertexShader: BRAIN_VERTEX,
+    fragmentShader: BRAIN_FRAGMENT,
+    uniforms: {
+      uBase: { value: srgb(BRAIN_COLOR) },
+      uTint: { value: srgb(TINT) },
+      uFocus: { value: 0 },
+      uLightDir: { value: directional.position.clone().normalize() },
+      uLightIntensity: { value: directional.intensity },
+      uFade: { value: 1 },
+    },
+  });
+
+  const organMaterials = new Map<string, THREE.ShaderMaterial>();
+  const makeOrganMaterial = (name: string): THREE.ShaderMaterial => {
+    const existing = organMaterials.get(name);
+    if (existing) return existing;
+    const material = new THREE.ShaderMaterial({
+      vertexShader: ORGAN_VERTEX,
+      fragmentShader: ORGAN_FRAGMENT,
+      uniforms: {
+        uBase: { value: srgb(baseFor(name)) },
+        uTint: { value: srgb(TINT) },
+        uLevel: { value: 0 },
+        uFocus: { value: 0 },
+        // The camera is close enough here that the organ has to stay
+        // recognisable, so the drug shows as brightness and a rim rather
+        // than repainting the tissue.
+        uTintMix: { value: 0.12 },
+        uLightDir: { value: directional.position.clone().normalize() },
+        uLightIntensity: { value: directional.intensity },
+        uFade: { value: 1 },
+      },
+    });
+    organMaterials.set(name, material);
+    return material;
+  };
+
+  // The model, once it has loaded.
+  let model: THREE.Group | null = null;
+  let anchors = new Map<string, PartAnchor>();
+  let tinted: Array<{ mesh: THREE.Mesh; id: string; material: THREE.ShaderMaterial }> = [];
+  let brainTargets: THREE.Mesh[] = [];
+  /** Meshes grouped by the organ they belong to, for hover picking. */
+  let organTargets = new Map<FocusOrgan, THREE.Mesh[]>();
+  let ready = false;
+  let theme: "light" | "dark" = "dark";
+  let dead = false;
+
+  // Camera state. The body is centred at the origin, so an un-focused camera
+  // sits on the axis.
+  const target = new THREE.Vector3(0, 0, 0);
+  const wantedTarget = new THREE.Vector3(0, 0, 0);
+  let wantedDistance = 6.4;
+  let distance = 6.4;
+  let focus: FocusOrgan | null = null;
+  /**
+   * What the caller last asked for.
+   *
+   * The model arrives after the caller has already asked to focus on
+   * something, so the request is kept here and applied when the anatomy
+   * lands. Without this the camera would never leave its opening position.
+   */
+  let wantedLevels: Record<string, number> = {};
+  let wantedFocus: FocusOrgan | null = null;
+
+  // A slow drift so the model is not dead still, and so the glass catches
+  // the light differently as the visitor watches.
+  let drift = 0;
+
+  /** The organ shown on its own, or null for the whole body. */
+  let isolation: IsolationGroup | null = null;
+  /** Current and wanted fade for each visual group, eased per frame. */
+  const fades = { body: 1, brain: 1, heart: 1, lungs: 1, liver: 1, kidneys: 1 };
+  const fadeTargets = { ...fades };
+  /** The isolation asked for before the anatomy lands. */
+  let wantedIsolation: IsolationGroup | null = null;
+  /** Camera punch when an organ pops in, and the group's materials. */
+  let popBoost = 0;
+  const groupMaterials = new Map<IsolationGroup, THREE.ShaderMaterial[]>();
+  /** What each isolation group occupies, in the model's space. */
+  const isolationAnchors = new Map<IsolationGroup, { centre: THREE.Vector3; extent: number }>();
+  /** Whether the organ materials are in the isolating transparency state. */
+  let faded = false;
+
+  function fadeTargetsFor(organ: IsolationGroup | null): Record<string, number> {
+    const out: Record<string, number> = {
+      body: 1,
+      brain: 1,
+      heart: 1,
+      lungs: 1,
+      liver: 1,
+      kidneys: 1,
+    };
+    if (organ) {
+      for (const key of Object.keys(out)) out[key] = key === organ ? 1 : 0;
+    }
+    return out;
+  }
+
+  /** Applies the isolating transparency state (or restores the opaque one). */
+  function applyTransparency(active: boolean): void {
+    if (active === faded) return;
+    faded = active;
+    const organAndBrain = [brainMaterial, ...organMaterials.values()];
+    for (const material of organAndBrain) {
+      if (active) {
+        material.transparent = true;
+        material.depthWrite = false;
+      } else {
+        material.transparent = false;
+        material.depthWrite = true;
+      }
+    }
+  }
+
+  /** Aims the fades at the wanted isolation. */
+  function applyIsolation(organ: IsolationGroup | null): void {
+    isolation = organ;
+    Object.assign(fadeTargets, fadeTargetsFor(organ));
+    applyTransparency(organ !== null);
+    if (organ && !reducedMotion) popBoost = 1;
+  }
+
+  /** Set when the fades have settled back to fully opaque. */
+  function restoreIfSettled(): void {
+    if (faded) return;
+    for (const value of Object.values(fades)) {
+      if (value < 0.995) return;
+    }
+    for (const key of Object.keys(fades) as Array<keyof typeof fades>) fades[key] = 1;
+  }
+
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let brainRegion: BrainRegion | null = null;
+  /** Where the brain part under the pointer is, in canvas pixels. */
+  let brainPoint: { x: number; y: number } | null = null;
+  /** The organ under the pointer and its canvas position, for hover data. */
+  let organHover: { organ: FocusOrgan; x: number; y: number } | null = null;
+
+  /** A world point, in canvas pixels. */
+  function project(world: THREE.Vector3): { x: number; y: number } {
+    const point = world.clone().project(camera);
+    const width = canvas.clientWidth || 1;
+    const height = canvas.clientHeight || 1;
+    return {
+      x: (point.x * 0.5 + 0.5) * width,
+      y: (-point.y * 0.5 + 0.5) * height,
+    };
+  }
+
+  /** Reads the anatomical name out of a mesh name: "Cortex_FMA72653_R". */
+  function partName(meshName: string): { id: string; name: string } | null {
+    const match = /^(?:Cortex|Deep)_(FMA\d+|BP\d+)_[LRM]$/.exec(meshName);
+    if (!match) return null;
+    const id = match[1];
+    const name = BRAIN_PART_NAMES[id];
+    return name ? { id, name } : null;
+  }
+
+  function pickBrain(clientX: number, clientY: number): void {
+    if (!ready || brainTargets.length === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(brainTargets, false);
+    let found: BrainRegion | null = null;
+    let point: THREE.Vector3 | null = null;
+    for (const hit of hits) {
+      const part = partName(hit.object.name);
+      if (!part) continue;
+      const region = regionOf(part.id, part.name);
+      if (!region) continue;
+      found = region;
+      point = hit.point.clone();
+      break;
+    }
+    brainRegion = found;
+    brainPoint = point ? project(point) : null;
+    options.onBrainRegion?.(found);
+  }
+
+  function clearBrain(): void {
+    if (!brainRegion) return;
+    brainRegion = null;
+    brainPoint = null;
+    options.onBrainRegion?.(null);
+  }
+
+  /** Picks any organ mesh, not just the brain, for the live hover readout. */
+  function pickOrgan(clientX: number, clientY: number): void {
+    if (!ready || organTargets.size === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const candidates = [...organTargets.values()].flat();
+    const hits = raycaster.intersectObjects(candidates, false);
+    let next: { organ: FocusOrgan; x: number; y: number } | null = null;
+    for (const hit of hits) {
+      for (const [organ, meshes] of organTargets) {
+        if (!meshes.includes(hit.object as THREE.Mesh)) continue;
+        const point = project(hit.point.clone());
+        next = { organ, x: point.x, y: point.y };
+        break;
+      }
+      if (next) break;
+    }
+    organHover = next;
+    options.onOrganHover?.(next);
+  }
+
+  function clearOrgan(): void {
+    if (!organHover) return;
+    organHover = null;
+    options.onOrganHover?.(null);
+  }
+
+  const onPointerMove = (event: PointerEvent) => {
+    pickBrain(event.clientX, event.clientY);
+    pickOrgan(event.clientX, event.clientY);
+  };
+  const onPointerLeave = () => {
+    clearBrain();
+    clearOrgan();
+  };
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerleave", onPointerLeave);
+
+  function resize(): void {
+    const width = canvas.clientWidth || 1;
+    const height = canvas.clientHeight || 1;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxDpr));
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  }
+
+  let lastFrame = performance.now();
+  let raf = 0;
+  let disposed = false;
+  /** Set when the canvas is off screen or the tab is hidden. */
+  let paused = false;
+  /** The focus the camera is easing towards, and where it is now. */
+  let focusValue = 0;
+  let wantedFocusValue = 0;
+
+  function frame(now: number): void {
+    if (disposed) return;
+    raf = requestAnimationFrame(frame);
+    const dt = Math.min((now - lastFrame) / 1000, 0.05);
+    lastFrame = now;
+
+    if (paused) return;
+
+    if (reducedMotion) {
+      target.copy(wantedTarget);
+      distance = wantedDistance;
+      focusValue = wantedFocusValue;
+    } else {
+      // Ease towards the wanted framing, so scrolling to the next organ
+      // reads as a move rather than a cut.
+      target.lerp(wantedTarget, 1 - Math.pow(0.001, dt));
+      distance += (wantedDistance - distance) * (1 - Math.pow(0.002, dt));
+      // The organ lights as the camera arrives, rather than the instant the
+      // step changes.
+      focusValue += (wantedFocusValue - focusValue) * (1 - Math.pow(0.001, dt));
+    }
+
+    if (!reducedMotion) {
+      drift += dt * 0.08;
+      // The scan band travels down the body shell, the same sweep the
+      // landing figure has. Under reduced motion it parks.
+      const phase = (now % 5200) / 5200;
+      bodyMaterial.uniforms.uScan.value = 1.65 - phase * 3.3;
+    }
+
+    // The isolation fades, in the same ease as the camera.
+    if (reducedMotion) {
+      Object.assign(fades, fadeTargets);
+    } else {
+      const fadeRate = 1 - Math.pow(0.0015, dt);
+      for (const key of Object.keys(fades) as Array<keyof typeof fades>) {
+        fades[key] += (fadeTargets[key] - fades[key]) * fadeRate;
+      }
+    }
+    bodyMaterial.uniforms.uFade.value = fades.body;
+    brainMaterial.uniforms.uFade.value = fades.brain;
+    for (const [group, materials] of groupMaterials) {
+      for (const material of materials) {
+        material.uniforms.uFade.value = fades[group];
+      }
+    }
+    // Back to fully opaque once the fades settle.
+    if (!faded) restoreIfSettled();
+    // The camera punch decays fast: the organ hops, the eye follows.
+    if (popBoost > 0) {
+      popBoost *= Math.pow(0.02, dt);
+      if (popBoost < 0.001) popBoost = 0;
+    }
+
+    // The focus value drives the shader, so the organ brightens with the
+    // camera rather than snapping ahead of it.
+    for (const { id, material } of tinted) {
+      const wanted = wantedFocus && wantedFocus === id ? 1 : 0;
+      material.uniforms.uFocus.value = wanted === 1 ? focusValue : 0;
+    }
+    brainMaterial.uniforms.uFocus.value = wantedFocus === "brain" ? focusValue : 0;
+
+    const punch = 1 + 0.24 * popBoost;
+    camera.position.set(
+      target.x + Math.sin(drift) * 0.18,
+      target.y + 0.1,
+      target.z + distance * punch
+    );
+    camera.lookAt(target);
+
+    renderer.render(scene, camera);
+  }
+
+  // The scene sleeps when it cannot be seen: off screen, or in a hidden tab.
+  const onVisibility = () => {
+    paused = document.hidden;
+    if (!paused) lastFrame = performance.now();
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+
+  const resizeObserver = new ResizeObserver(resize);
+  resizeObserver.observe(canvas);
+  resize();
+  raf = requestAnimationFrame(frame);
+
+  options.onStatus?.("loading");
+  void loadAnatomyModel(
+    `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/models/human_anatomy.glb`,
+    { body: bodyMaterial, brain: brainMaterial, organ: makeOrganMaterial },
+    (error) => {
+      console.error("simulator: failed to load human_anatomy.glb", error);
+      options.onStatus?.("error");
+    }
+  )
+    .then((loaded) => {
+      model = loaded.group;
+      anchors = loaded.anchors;
+      tinted = loaded.tinted as typeof tinted;
+      brainTargets = loaded.brainTargets;
+      // Group the organ meshes so a pointer hit can name the organ. The brain
+      // has its own fine-grained picking, so it is not duplicated here.
+      organTargets = new Map<FocusOrgan, THREE.Mesh[]>();
+      for (const [name, mesh] of loaded.meshes) {
+        const group = isolationOf(name);
+        if (!group || group === "brain") continue;
+        const list = organTargets.get(group) ?? [];
+        list.push(mesh);
+        organTargets.set(group, list);
+      }
+      // Frame the isolation around everything the isolation shows: a UNION
+      // box per visual group, from the nodes themselves.
+      isolationAnchors.clear();
+      const boxes = new Map<IsolationGroup, THREE.Box3>();
+      for (const [name, mesh] of loaded.meshes) {
+        const group = isolationOf(name);
+        if (!group) continue;
+        mesh.geometry.computeBoundingBox();
+        const box = mesh.geometry.boundingBox;
+        if (!box) continue;
+        const world = box.clone().applyMatrix4(mesh.matrixWorld);
+        const acc = boxes.get(group);
+        if (acc) acc.union(world);
+        else boxes.set(group, world);
+      }
+      for (const [group, box] of boxes) {
+        const size = box.getSize(new THREE.Vector3());
+        isolationAnchors.set(group, {
+          centre: box.getCenter(new THREE.Vector3()),
+          extent: Math.max(size.x, size.y, size.z),
+        });
+      }
+      // Bucket the organ materials by the visual group they isolate with,
+      // so the fade loop can reach each in one pass.
+      for (const [name, material] of organMaterials) {
+        const group = isolationOf(name);
+        if (!group) continue;
+        const list = groupMaterials.get(group);
+        if (list) list.push(material);
+        else groupMaterials.set(group, [material]);
+      }
+      if (wantedIsolation) applyIsolation(wantedIsolation);
+      // The model has no digestive tract, so the gut has no mesh of its own.
+      // The gut sits in front of the kidneys, so the camera frames the
+      // abdomen there — and the narration says the gut itself is not in the
+      // model.
+      const kidneys = anchors.get("kidneys");
+      if (kidneys) {
+        anchors.set("gut", {
+          centre: kidneys.centre.clone(),
+          radius: kidneys.radius * 0.8,
+        });
+      }
+      scene.add(model);
+      ready = true;
+      // The caller asked for a framing before the anatomy was here. Apply it
+      // now, or the camera would never move.
+      applyLevels(wantedLevels);
+      applyFocus(wantedFocus);
+      applyFraming(wantedFocus, false);
+      options.onStatus?.("ready");
+    })
+    .catch(() => {
+      options.onStatus?.("error");
+    });
+
+  /** Re-colour the model for the active theme and the failed/alive state. */
+  function applyPalette(): void {
+    const palette = PALETTES[dead ? "dead" : theme];
+    bodyMaterial.uniforms.uColor.value = srgb(palette.body);
+    brainMaterial.uniforms.uBase.value = srgb(palette.brain);
+    brainMaterial.uniforms.uTint.value = srgb(palette.tint);
+    for (const [name, material] of organMaterials) {
+      material.uniforms.uBase.value = srgb(dead ? palette.body : baseFor(name));
+      material.uniforms.uTint.value = srgb(palette.tint);
+    }
+    hemisphere.color.setHex(palette.sky);
+    hemisphere.groundColor.setHex(palette.ground);
+    directional.color.setHex(palette.key);
+  }
+
+  function setTheme(next: "light" | "dark"): void {
+    theme = next;
+    applyPalette();
+  }
+
+  // Follow the app's theme class on <html> without importing the provider.
+  const readTheme = () =>
+    setTheme(document.documentElement.classList.contains("light") ? "light" : "dark");
+  readTheme();
+  const themeObserver = new MutationObserver(readTheme);
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+
+  function applyLevels(levels: Record<string, number>): void {
+    for (const { id, material } of tinted) {
+      const value = levels[id];
+      material.uniforms.uLevel.value =
+        value === undefined ? 0 : Math.min(1, Math.max(0, value));
+    }
+  }
+
+  function applyFocus(organ: FocusOrgan | null): void {
+    // The organ the walkthrough is about burns brighter than the ones it is
+    // passing. The brain is one material for all 64 of its parts, so it is
+    // lit as a whole. The value itself is eased in the frame loop, so the
+    // organ lights as the camera arrives.
+    wantedFocusValue = organ ? 1 : 0;
+    if (reducedMotion) focusValue = wantedFocusValue;
+  }
+
+  function applyFraming(organ: FocusOrgan | null, immediate: boolean): void {
+    focus = organ;
+    if (!organ) {
+      wantedTarget.set(0, 0, 0);
+      wantedDistance = 6.4;
+    } else {
+      const anchor = anchors.get(organ);
+      if (!anchor) return;
+      const fit = isolation ? isolationAnchors.get(isolation) : undefined;
+      if (fit) {
+        // The isolation frames everything the isolation shows, not just the
+        // organ itself: the vessel tree or the airway come along.
+        wantedTarget.copy(fit.centre);
+        wantedDistance = Math.max(0.6, fit.extent * 2.8);
+      } else {
+        wantedTarget.copy(anchor.centre);
+        wantedDistance = frameDistance(anchor.radius);
+      }
+    }
+    if (immediate || reducedMotion) {
+      target.copy(wantedTarget);
+      distance = wantedDistance;
+    }
+  }
+
+  return {
+    setLevels(levels) {
+      wantedLevels = levels;
+      applyLevels(levels);
+    },
+
+    setFocus(organ) {
+      wantedFocus = organ;
+      applyFocus(organ);
+    },
+
+    setIsolation(organ) {
+      const effective: IsolationGroup | null = organ && organ !== "gut" ? (organ as IsolationGroup) : null;
+      const changed = effective !== (isolation ?? null);
+      wantedIsolation = effective;
+      // The fades are eased in the frame loop; only kick if the anatomy
+      // is there, or aim it at the load. Re-frame so the organ fills the
+      // stage — or the whole body comes back.
+      if (ready) {
+        applyIsolation(effective);
+        if (changed) applyFraming(effective, false);
+      }
+    },
+
+    setPaused(next) {
+      paused = next || document.hidden;
+      if (!paused) lastFrame = performance.now();
+    },
+
+    focusOrgan(organ, immediate = false) {
+      applyFraming(organ, immediate);
+    },
+
+    getFocusPoint() {
+      if (!focus) return null;
+      const anchor = anchors.get(focus);
+      if (!anchor) return null;
+      const point = anchor.centre.clone().project(camera);
+      const width = canvas.clientWidth || 1;
+      const height = canvas.clientHeight || 1;
+      return {
+        x: (point.x * 0.5 + 0.5) * width,
+        y: (-point.y * 0.5 + 0.5) * height,
+      };
+    },
+
+    getBrainRegion() {
+      if (!brainRegion || !brainPoint) return null;
+      return { region: brainRegion, x: brainPoint.x, y: brainPoint.y };
+    },
+
+    setDead(next) {
+      dead = next;
+      applyPalette();
+    },
+
+    isReady() {
+      return ready;
+    },
+
+    dispose() {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      resizeObserver.disconnect();
+      themeObserver.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerleave", onPointerLeave);
+      scene.traverse((node) => {
+        const mesh = node as THREE.Mesh;
+        if (mesh.isMesh) mesh.geometry.dispose();
+      });
+      bodyMaterial.dispose();
+      brainMaterial.dispose();
+      for (const material of organMaterials.values()) material.dispose();
+      renderer.dispose();
+    },
+  };
+}

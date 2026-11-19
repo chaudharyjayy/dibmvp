@@ -1,7 +1,11 @@
+import type { OrganProfileSelection } from './organProfilesTypes';
+import type { ToxicityResult } from './toxicity';
+
 export interface BodyProfile {
   ageYears: number;
   weightKg: number;
   sex: 'M' | 'F' | 'other';
+  organProfiles?: OrganProfileSelection;
 }
 
 export interface DoseEvent {
@@ -21,6 +25,8 @@ export interface SimResult {
   timeToClearH: number | null;
   /** Non-fatal warnings, e.g. doses outside the range the source studied. */
   warnings: string[];
+  /** Synthetic organ failure / model death assessment for this run. */
+  toxicity?: ToxicityResult;
 }
 
 /**
