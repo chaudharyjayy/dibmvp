@@ -34,6 +34,8 @@ export type SimulatorSceneOptions = {
   onStatus?: (status: "loading" | "ready" | "error") => void;
   /** Called when the pointer lands on a part of the brain. */
   onBrainRegion?: (region: BrainRegion | null) => void;
+  /** Called when the pointer lands on any organ, for its live data readout. */
+  onOrganHover?: (hover: { organ: FocusOrgan; x: number; y: number } | null) => void;
 };
 
 export type SimulatorScene = {
@@ -55,6 +57,8 @@ export type SimulatorScene = {
   getFocusPoint(): { x: number; y: number } | null;
   /** The brain region under the pointer, and where it is on the canvas. */
   getBrainRegion(): { region: BrainRegion; x: number; y: number } | null;
+  /** Shows the model's failed state (pale tissue, no drug tint). */
+  setDead(dead: boolean): void;
   /** Whether the model has loaded. */
   isReady(): boolean;
   dispose(): void;
@@ -64,6 +68,49 @@ const CAMERA_FOV = 32;
 const BODY_COLOR = 0x4fb8ff;
 const TINT = 0x22d3ee;
 const BRAIN_COLOR = 0x9e4d4d;
+
+/**
+ * The 3D scene follows the same Light/Dark switch as the rest of the app.
+ * The class lives on <html>, so the scene observes it rather than depending
+ * on the theme provider — every scene instance stays in sync on its own.
+ *
+ * The dead palette is shared by both themes: tissue goes pale and the drug
+ * tint is dropped, so a failed model reads at a glance.
+ */
+type Palette = {
+  body: number;
+  tint: number;
+  brain: number;
+  sky: number;
+  ground: number;
+  key: number;
+};
+const PALETTES: Record<"light" | "dark" | "dead", Palette> = {
+  dark: {
+    body: 0x4fb8ff,
+    tint: 0x22d3ee,
+    brain: 0x9e4d4d,
+    sky: 0xbcd8ff,
+    ground: 0x0a1420,
+    key: 0xd8ecff,
+  },
+  light: {
+    body: 0x2f9e6f,
+    tint: 0x16a34a,
+    brain: 0xa06a6a,
+    sky: 0xffffff,
+    ground: 0xcdebd9,
+    key: 0xffffff,
+  },
+  dead: {
+    body: 0x71777f,
+    tint: 0x4b5563,
+    brain: 0x6b5555,
+    sky: 0xb9c0c8,
+    ground: 0x282c31,
+    key: 0xd6d9dd,
+  },
+};
 
 /** Raw sRGB components — custom shaders write straight to the framebuffer. */
 function srgb(hex: number): THREE.Color {
@@ -165,7 +212,11 @@ export function createSimulatorScene(
   let anchors = new Map<string, PartAnchor>();
   let tinted: Array<{ mesh: THREE.Mesh; id: string; material: THREE.ShaderMaterial }> = [];
   let brainTargets: THREE.Mesh[] = [];
+  /** Meshes grouped by the organ they belong to, for hover picking. */
+  let organTargets = new Map<FocusOrgan, THREE.Mesh[]>();
   let ready = false;
+  let theme: "light" | "dark" = "dark";
+  let dead = false;
 
   // Camera state. The body is centred at the origin, so an un-focused camera
   // sits on the axis.
@@ -256,6 +307,8 @@ export function createSimulatorScene(
   let brainRegion: BrainRegion | null = null;
   /** Where the brain part under the pointer is, in canvas pixels. */
   let brainPoint: { x: number; y: number } | null = null;
+  /** The organ under the pointer and its canvas position, for hover data. */
+  let organHover: { organ: FocusOrgan; x: number; y: number } | null = null;
 
   /** A world point, in canvas pixels. */
   function project(world: THREE.Vector3): { x: number; y: number } {
@@ -308,11 +361,43 @@ export function createSimulatorScene(
     options.onBrainRegion?.(null);
   }
 
+  /** Picks any organ mesh, not just the brain, for the live hover readout. */
+  function pickOrgan(clientX: number, clientY: number): void {
+    if (!ready || organTargets.size === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const candidates = [...organTargets.values()].flat();
+    const hits = raycaster.intersectObjects(candidates, false);
+    let next: { organ: FocusOrgan; x: number; y: number } | null = null;
+    for (const hit of hits) {
+      for (const [organ, meshes] of organTargets) {
+        if (!meshes.includes(hit.object as THREE.Mesh)) continue;
+        const point = project(hit.point.clone());
+        next = { organ, x: point.x, y: point.y };
+        break;
+      }
+      if (next) break;
+    }
+    organHover = next;
+    options.onOrganHover?.(next);
+  }
+
+  function clearOrgan(): void {
+    if (!organHover) return;
+    organHover = null;
+    options.onOrganHover?.(null);
+  }
+
   const onPointerMove = (event: PointerEvent) => {
     pickBrain(event.clientX, event.clientY);
+    pickOrgan(event.clientX, event.clientY);
   };
   const onPointerLeave = () => {
     clearBrain();
+    clearOrgan();
   };
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerleave", onPointerLeave);
@@ -434,6 +519,16 @@ export function createSimulatorScene(
       anchors = loaded.anchors;
       tinted = loaded.tinted as typeof tinted;
       brainTargets = loaded.brainTargets;
+      // Group the organ meshes so a pointer hit can name the organ. The brain
+      // has its own fine-grained picking, so it is not duplicated here.
+      organTargets = new Map<FocusOrgan, THREE.Mesh[]>();
+      for (const [name, mesh] of loaded.meshes) {
+        const group = isolationOf(name);
+        if (!group || group === "brain") continue;
+        const list = organTargets.get(group) ?? [];
+        list.push(mesh);
+        organTargets.set(group, list);
+      }
       // Frame the isolation around everything the isolation shows: a UNION
       // box per visual group, from the nodes themselves.
       isolationAnchors.clear();
@@ -489,6 +584,33 @@ export function createSimulatorScene(
     .catch(() => {
       options.onStatus?.("error");
     });
+
+  /** Re-colour the model for the active theme and the failed/alive state. */
+  function applyPalette(): void {
+    const palette = PALETTES[dead ? "dead" : theme];
+    bodyMaterial.uniforms.uColor.value = srgb(palette.body);
+    brainMaterial.uniforms.uBase.value = srgb(palette.brain);
+    brainMaterial.uniforms.uTint.value = srgb(palette.tint);
+    for (const [name, material] of organMaterials) {
+      material.uniforms.uBase.value = srgb(dead ? palette.body : baseFor(name));
+      material.uniforms.uTint.value = srgb(palette.tint);
+    }
+    hemisphere.color.setHex(palette.sky);
+    hemisphere.groundColor.setHex(palette.ground);
+    directional.color.setHex(palette.key);
+  }
+
+  function setTheme(next: "light" | "dark"): void {
+    theme = next;
+    applyPalette();
+  }
+
+  // Follow the app's theme class on <html> without importing the provider.
+  const readTheme = () =>
+    setTheme(document.documentElement.classList.contains("light") ? "light" : "dark");
+  readTheme();
+  const themeObserver = new MutationObserver(readTheme);
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
   function applyLevels(levels: Record<string, number>): void {
     for (const { id, material } of tinted) {
@@ -583,6 +705,11 @@ export function createSimulatorScene(
       return { region: brainRegion, x: brainPoint.x, y: brainPoint.y };
     },
 
+    setDead(next) {
+      dead = next;
+      applyPalette();
+    },
+
     isReady() {
       return ready;
     },
@@ -591,6 +718,7 @@ export function createSimulatorScene(
       disposed = true;
       cancelAnimationFrame(raf);
       resizeObserver.disconnect();
+      themeObserver.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerleave", onPointerLeave);

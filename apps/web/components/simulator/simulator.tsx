@@ -1,19 +1,18 @@
 "use client";
 
 /**
- * The simulator: the model in the middle, the inputs on the left, and the
- * walkthrough on the right.
+ * The simulator: one 3D model, with the inputs beside it, and the experiment's
+ * graphs and written details below it.
  *
- * The walkthrough is the page's spine. Scrolling it moves the camera to each
- * organ the condition is about and reads out what the engine's own numbers
- * say at that moment. The time dial moves the moment: it drives the same
- * simulated series the model is shaded from, so the numbers on screen and the
- * glow on the body are always the same instant.
+ * Only the model the run is executed on is drawn in 3D. The healthy reference
+ * survives as a graph, not as a second body: its curves are compared with the
+ * model's on the same scale. Everything below the model — the live status, the
+ * organ traces and the narrated walkthrough — is reached by scrolling down the
+ * page, so the 3D view stays the first thing on screen.
  *
- * Two controls, and they do different things: the dial moves time, the
- * scroll moves the camera. Neither one claims anything the engine does not
- * know — the model is a one-compartment pharmacokinetic model and does not
- * model diseases.
+ * Two controls do different things: the dial moves time, the scroll moves the
+ * camera. Neither claims anything the engine does not know — it is a
+ * one-compartment pharmacokinetic model and does not model diseases.
  */
 
 import * as React from "react";
@@ -22,15 +21,17 @@ import { ArrowLeft, Download, Save } from "lucide-react";
 import {
   simulate,
   buildReport,
+  getDefaultOrganProfiles,
   type SimResult,
   type BodyProfile,
   type DoseEvent,
 } from "@dib/engine";
 import { createDataClient, type DataClient } from "@dib/data-client";
 import type { BrainRegion } from "@/components/anatomy/regions";
-import SimulatorConsole, { type SimulatorInput } from "./console";
-import TimeDial, { type DialSource } from "./time-dial";
+import SimulatorConsole, { normalizeInput, type SimulatorInput } from "./console";
+import TimeDial, { type DialSource, type TimelineSection } from "./time-dial";
 import BodyFigure from "./body-figure";
+import ThemeSwitch from "@/components/theme/theme-switch";
 import StepLiterature from "./step-literature";
 import { rise } from "./motion";
 import {
@@ -44,6 +45,12 @@ import type { FocusOrgan, SimulatorScene } from "./scene";
 import OrganMonitor from "./organ-monitor";
 import { drugFromPk, DRUG_COLORS, SEPARATE_CURVES_CAPTION, type MedicationRun } from "@/lib/treatment";
 import { getApprovedCitations, getApprovedPk } from "@/lib/catalogue";
+import {
+  compareRuns,
+  SCENARIO_CONTEXT,
+  scenarioById,
+  withClearanceScenario,
+} from "@/lib/kidney-scenario";
 import type { DrugParameterCitation, DrugPkRow } from "@dib/data-client";
 import { topicForOrgan } from "@/lib/pubmed";
 
@@ -54,11 +61,21 @@ const toEngineSex = (s: SexUi): BodyProfile["sex"] =>
 const DEFAULT_INPUT: SimulatorInput = {
   conditionId: "general",
   description: "",
-  ageYears: 30,
-  weightKg: 70,
+  // Number boxes start at 0. Empty stays empty until a run resolves it.
+  ageYears: "0",
+  weightKg: "0",
   sex: "other",
   drugs: [],
   tEndH: 48,
+  organProfiles: getDefaultOrganProfiles(),
+  clearanceScenario: "baseline",
+  extraFields: [],
+};
+
+/** A number box's text as a number; empty or 0 falls back to a reference adult. */
+const toNumber = (text: string, fallback: number): number => {
+  const value = text.trim() === "" ? 0 : Number(text);
+  return Number.isFinite(value) && value !== 0 ? value : fallback;
 };
 
 /** The organ's name, for the label over the model. */
@@ -80,6 +97,10 @@ export default function Simulator() {
   /** The hour the dial is on. */
   const [hours, setHours] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
+  /** Playback speed multiplier, shared with the timeline controls. */
+  const [speed, setSpeed] = React.useState(1);
+  /** Whether the expanded full timeline is showing. */
+  const [fullTimelineOpen, setFullTimelineOpen] = React.useState(false);
 
   /** The step of the walkthrough the reader is on. */
   const [activeStep, setActiveStep] = React.useState(0);
@@ -92,8 +113,6 @@ export default function Simulator() {
   /* ---- the model ------------------------------------------------------ */
 
   const [scene, setScene] = React.useState<SimulatorScene | null>(null);
-  /** Which view the right column is showing. */
-  const [rightView, setRightView] = React.useState<"walkthrough" | "monitor">("walkthrough");
   /** The organ the visitor is watching, in the monitor. */
   const [monitorFocus, setMonitorFocus] = React.useState<FocusOrgan | null>(null);
   const [brainRegion, setBrainRegion] = React.useState<BrainRegion | null>(null);
@@ -153,8 +172,8 @@ export default function Simulator() {
       if (error || !data) return;
       setDraft((d) => ({
         ...d,
-        ageYears: data.ageYears,
-        weightKg: data.weightKg,
+        ageYears: String(data.ageYears),
+        weightKg: String(data.weightKg),
         sex: data.sex,
       }));
     });
@@ -236,22 +255,33 @@ export default function Simulator() {
     [active.drugs],
   );
 
-  const { runs, simError } = React.useMemo((): {
+  const { runs, healthyRuns, simError } = React.useMemo((): {
     runs: MedicationRun[] | null;
+    healthyRuns: MedicationRun[] | null;
     simError: string | null;
   } => {
-    if (active.drugs.length === 0) return { runs: null, simError: null };
+    const empty = { runs: null, healthyRuns: null, simError: null };
+    if (active.drugs.length === 0) return empty;
     // Every medicine needs its approved row before anything runs.
-    if (!active.drugs.every((d) => d.hasPk && pkRows.has(d.drugId))) {
-      return { runs: null, simError: null };
-    }
+    if (!active.drugs.every((d) => d.hasPk && pkRows.has(d.drugId))) return empty;
+
+    const ageYears = toNumber(active.ageYears, 30);
+    const weightKg = toNumber(active.weightKg, 70);
     const profile: BodyProfile = {
-      ageYears: active.ageYears,
-      weightKg: active.weightKg,
+      ageYears,
+      weightKg,
       sex: toEngineSex(active.sex),
+      organProfiles: active.organProfiles,
+    };
+    // The healthy reference keeps every input the same except the organ
+    // archetypes — those become the healthy adult defaults.
+    const healthyProfile: BodyProfile = {
+      ...profile,
+      organProfiles: getDefaultOrganProfiles(),
     };
     try {
       const out: MedicationRun[] = [];
+      const healthy: MedicationRun[] = [];
       for (const [index, line] of active.drugs.entries()) {
         const pk = pkRows.get(line.drugId);
         if (!pk) continue;
@@ -259,19 +289,44 @@ export default function Simulator() {
         if (!drug) continue;
         const doses: DoseEvent[] = line.doses.map((r) => ({
           drugId: line.drugId,
-          doseMg: r.doseMg,
-          timeH: r.timeH,
+          doseMg: Number(r.doseMg) || 0,
+          timeH: Number(r.timeH) || 0,
         }));
+        const runArgs = { doses, tEndH: active.tEndH, dtH: 0.05 };
+        // The cited (organ-profile-adjusted) run is always kept. A what-if
+        // adds a second run on a scaled copy of the drug; the approved row
+        // itself is never changed.
+        const baseline = simulate({ ...runArgs, profile, drug });
+        const result =
+          active.clearanceScenario === "baseline"
+            ? baseline
+            : simulate({
+                ...runArgs,
+                profile,
+                drug: withClearanceScenario(drug, active.clearanceScenario),
+              });
         out.push({
           id: line.drugId,
           name: line.name,
           color: DRUG_COLORS[index % DRUG_COLORS.length],
-          result: simulate({ profile, drug, doses, tEndH: active.tEndH, dtH: 0.05 }),
+          result,
+          ...(active.clearanceScenario === "baseline" ? {} : { baseline }),
+        });
+        // The reference is always the cited, unscaled run on healthy organs.
+        healthy.push({
+          id: line.drugId,
+          name: line.name,
+          color: DRUG_COLORS[index % DRUG_COLORS.length],
+          result: simulate({ ...runArgs, profile: healthyProfile, drug }),
         });
       }
-      return { runs: out.length > 0 ? out : null, simError: null };
+      return {
+        runs: out.length > 0 ? out : null,
+        healthyRuns: healthy.length > 0 ? healthy : null,
+        simError: null,
+      };
     } catch (e) {
-      return { runs: null, simError: e instanceof Error ? e.message : "simulation failed" };
+      return { runs: null, healthyRuns: null, simError: e instanceof Error ? e.message : "simulation failed" };
     }
   }, [active, pkRows]);
 
@@ -281,6 +336,26 @@ export default function Simulator() {
     () => (runs ?? []).map((r) => ({ run: r, report: buildReport(r.result) })),
     [runs]
   );
+
+  /** The first fatal organ failure across the treatment's medicines. */
+  const death = React.useMemo(() => {
+    for (const run of runs ?? []) {
+      const tox = run.result.toxicity;
+      if (tox?.death) {
+        return {
+          ...tox.death,
+          drugName: run.name,
+          message: tox.message ?? "",
+        };
+      }
+    }
+    return null;
+  }, [runs]);
+
+  // Death freezes the timeline at the moment of failure: no play, no advance.
+  React.useEffect(() => {
+    if (death) setPlaying(false);
+  }, [death]);
 
   /** The treatment's name for the header and the report title. */
   const treatmentLabel = React.useMemo(() => {
@@ -332,18 +407,23 @@ export default function Simulator() {
     };
   }, [runs]);
 
-  const levels = React.useMemo(() => {
-    if (breakdown.length === 0) return levelsFor(moment, peaks);
-    // The strongest mover among the medicines holds the fill.
-    const perBreakdown = breakdown.map((b) => levelsFor(b.moment, peaks));
-    const first = perBreakdown[0];
+  /** The strongest mover among the medicines holds each organ's fill. */
+  const levelsFrom = (
+    pieces: Array<{ moment: ReturnType<typeof momentAt> }>,
+    scale: { concMgPerL: number; eliminationMgPerH: number }
+  ): Record<string, number> => {
+    if (pieces.length === 0) return levelsFor(moment, scale);
+    const per = pieces.map((p) => levelsFor(p.moment, scale));
     return Object.fromEntries(
-      Object.keys(first).map((key) => [
-        key,
-        Math.max(...perBreakdown.map((l) => l[key] ?? 0)),
-      ])
+      Object.keys(per[0]).map((key) => [key, Math.max(...per.map((l) => l[key] ?? 0))])
     ) as Record<string, number>;
-  }, [breakdown, peaks, moment]);
+  };
+
+  const levels = React.useMemo(
+    () => levelsFrom(breakdown, peaks),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [breakdown, peaks, moment]
+  );
 
   /* ---- the scroll drives the camera ----------------------------------- */
 
@@ -406,9 +486,9 @@ export default function Simulator() {
   }, [active.conditionId]);
 
   const walkthroughFocus: FocusOrgan | null = steps[activeStep]?.organ ?? null;
-  /** The camera's organ: the monitor's selection when it is on screen,
-   *  otherwise the walkthrough's step. */
-  const focusOrgan = rightView === "monitor" ? monitorFocus : walkthroughFocus;
+  /** An explicit pick in the monitor wins; otherwise the walkthrough's step
+   *  drives the camera. Both live on screen at once below the 3D view. */
+  const focusOrgan: FocusOrgan | null = monitorFocus ?? walkthroughFocus;
 
   React.useEffect(() => {
     scene?.focusOrgan(focusOrgan);
@@ -416,12 +496,11 @@ export default function Simulator() {
   }, [scene, focusOrgan]);
 
   /**
-   * Isolation happens only in the monitor: the body fades out so the
-   * picked organ reads on its own. The walkthrough never hides the body —
-   * there the camera is the instrument. The gut has no mesh, so it never
-   * isolates.
+   * Picking an organ in the monitor fades the rest of the body so the organ
+   * reads on its own. The walkthrough never hides the body — there the camera
+   * is the instrument. The gut has no mesh, so it never isolates.
    */
-  const isolation = rightView === "monitor" && monitorFocus !== "gut" ? monitorFocus : null;
+  const isolation = monitorFocus !== "gut" ? monitorFocus : null;
   React.useEffect(() => {
     scene?.setIsolation(isolation);
   }, [scene, isolation]);
@@ -429,6 +508,54 @@ export default function Simulator() {
   React.useEffect(() => {
     scene?.setLevels(levels);
   }, [scene, levels]);
+
+  React.useEffect(() => {
+    scene?.setDead(Boolean(death));
+  }, [scene, death]);
+
+  /** Every procedure section, for the expanded full timeline. */
+  const sections: TimelineSection[] = React.useMemo(() => {
+    const last = steps.length - 1;
+    return steps.map((step, index) => ({
+      index,
+      label: index === 0 ? "Whole body" : ORGAN_LABEL[step.organ as FocusOrgan] ?? String(step.organ),
+      hour: last === 0 ? 0 : Number(((index / last) * active.tEndH).toFixed(1)),
+    }));
+  }, [steps, active.tEndH]);
+
+  /** Jump the simulation — time and camera — to a procedure section. */
+  const jumpToSection = React.useCallback(
+    (index: number) => {
+      setActiveStep(index);
+      const section = sections[index];
+      if (section) setHours(section.hour);
+      const element = stepRefs.current[index];
+      if (element) {
+        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        element.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+      }
+    },
+    [sections]
+  );
+
+  /** The small readout shown when the pointer rests on an organ in the model. */
+  const hoverDataFor = React.useCallback(
+    (organ: FocusOrgan) => {
+      const toxic = runs?.[0]?.result.toxicity;
+      const loadKey = organ as keyof NonNullable<typeof toxic>["organLoad"];
+      const load = toxic?.organLoad[loadKey];
+      return {
+        title: ORGAN_LABEL[organ] ?? organ,
+        lines: [
+          `Relative level: ${((levels[organ] ?? 0) * 100).toFixed(0)}% of peak`,
+          `Model time: T+${hours.toFixed(1)} h`,
+          ...(load !== undefined ? [`Toxic load: ${load.toFixed(2)}x`] : []),
+          ...(toxic?.failedOrgans.some((f) => f.organ === loadKey) ? ["Organ failed in this run"] : []),
+        ],
+      };
+    },
+    [levels, hours, runs]
+  );
 
   // The dial is clamped to the window of the run it belongs to.
   React.useEffect(() => {
@@ -444,23 +571,28 @@ export default function Simulator() {
     [sweepReadouts]
   );
 
-  // Play: the dial advances on its own and loops.
+  // Play: the dial advances on its own and loops. Speed is shared with the
+  // timeline bar; the play loop never runs once the model has failed.
   React.useEffect(() => {
-    if (!playing) return;
+    if (!playing || death) return;
     const id = window.setInterval(() => {
       setHours((h) => {
-        const step = Math.max(0.05, active.tEndH / 240);
+        const step = Math.max(0.05, active.tEndH / 240) * speed;
         const next = h + step;
         return next > active.tEndH ? 0 : next;
       });
     }, 60);
     return () => window.clearInterval(id);
-  }, [playing, active.tEndH]);
+  }, [playing, active.tEndH, speed, death]);
 
   /* ---- running and saving --------------------------------------------- */
 
   const run = React.useCallback(() => {
-    setActive({ ...draft });
+    // Empty boxes become 0 and show 0 from this moment on — the only time the
+    // form is rewritten, and it happens on Run rather than on blur/change.
+    const resolved = normalizeInput(draft);
+    setDraft(resolved);
+    setActive(resolved);
     setHours(0);
     setPlaying(false);
     setAction(null);
@@ -479,9 +611,11 @@ export default function Simulator() {
     const drugs = active.drugs.flatMap((line) => {
       const byAmount = new Map<number, number[]>();
       for (const r of line.doses) {
-        const times = byAmount.get(r.doseMg) ?? [];
-        times.push(r.timeH);
-        byAmount.set(r.doseMg, times);
+        const amount = Number(r.doseMg) || 0;
+        const time = Number(r.timeH) || 0;
+        const times = byAmount.get(amount) ?? [];
+        times.push(time);
+        byAmount.set(amount, times);
       }
       return [...byAmount.entries()]
         .sort((a, b) => a[0] - b[0])
@@ -492,11 +626,22 @@ export default function Simulator() {
         }));
     });
 
-    const perMedicine = reports.map(
-      ({ run, report }) =>
-        `${run.name}: ${report.bullets.join("; ")}`
-    );
+    const scenario = scenarioById(active.clearanceScenario);
+    const scenarioLine =
+      active.clearanceScenario === "baseline"
+        ? `Model setting: ${scenario.label} (cited clearance, unchanged).`
+        : `Model what-if: ${scenario.label} (clearance x${scenario.multiplier}). ${SCENARIO_CONTEXT}`;
+
+    const perMedicine = reports.map(({ run, report }) => {
+      const comparison = run.baseline
+        ? ` What-if vs cited baseline: ${compareRuns(run.result, run.baseline)
+            .map((row) => `${row.label} ${row.baseline} -> ${row.scenario}`)
+            .join("; ")}.`
+        : "";
+      return `${run.name}: ${report.bullets.join("; ")}${comparison}`;
+    });
     const summaryText = [
+      scenarioLine,
       reports.length > 1
         ? "Each medicine is modelled separately on its own approved row. Interactions are not modelled."
         : "Parameters sourced from the approved, cited PK row.",
@@ -514,8 +659,8 @@ export default function Simulator() {
     const { error } = await client.reports.saveReport({
       title: `${treatmentLabel} — ${new Date().toISOString().slice(0, 10)}`.slice(0, 100),
       profileSnapshot: {
-        ageYears: active.ageYears,
-        weightKg: active.weightKg,
+        ageYears: toNumber(active.ageYears, 30),
+        weightKg: toNumber(active.weightKg, 70),
         sex: active.sex,
       },
       drugs,
@@ -523,6 +668,7 @@ export default function Simulator() {
         cmaxMgPerL: first.cmaxMgPerL,
         tmaxH: first.tmaxH,
         timeToClearH: first.timeToClearH,
+        modelScenario: { id: scenario.id, clearanceMultiplier: scenario.multiplier },
       },
       // No verified interaction pairs exist yet. Sending [] is the honest value.
       warnings: [],
@@ -538,8 +684,8 @@ export default function Simulator() {
     if (!client) return;
     setAction(null);
     const { error } = await client.profile.saveProfile({
-      ageYears: draft.ageYears,
-      weightKg: draft.weightKg,
+      ageYears: toNumber(draft.ageYears, 30),
+      weightKg: toNumber(draft.weightKg, 70),
       sex: draft.sex,
     });
     setAction(error ? `Profile save failed: ${error.message}` : "Profile saved to your account.");
@@ -559,7 +705,7 @@ export default function Simulator() {
 
       {/* The bar */}
       <header className="sticky top-0 z-40 border-b border-line bg-page/95 backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4 px-4 py-3">
+        <div className="mx-auto flex w-full items-center justify-between gap-4 px-4 py-3">
           <div className="flex items-center gap-4">
             <Link
               href="/"
@@ -576,26 +722,50 @@ export default function Simulator() {
               {treatmentLabel}
             </span>
           </div>
-          <p className="max-w-[46ch] text-right font-mono text-[10px] uppercase leading-4 tracking-[0.1em] text-warn">
-            <span className="sm:hidden">
-              {active.drugs.length > 0 ? "PK sourced · cited" : "No medicine"}
-            </span>
-            <span className="hidden sm:inline">
-              {active.drugs.length > 0
-                ? "Parameters from the approved, cited PK rows. Each medicine is modelled separately — interactions are not modelled."
-                : "No medicine added. Search the catalogue to build a treatment."}
-            </span>
-          </p>
+          {/* The theme switch sits beside the amber note, not over the page. */}
+          <div className="flex items-center gap-3">
+            <p className="max-w-[46ch] text-right font-mono text-[10px] uppercase leading-4 tracking-[0.1em] text-warn">
+              <span className="sm:hidden">
+                {active.drugs.length > 0 ? "PK sourced · cited" : "No medicine"}
+              </span>
+              <span className="hidden sm:inline">
+                {active.drugs.length > 0
+                  ? "Parameters from the approved, cited PK rows. Each medicine is modelled separately — interactions are not modelled."
+                  : "No medicine added. Search the catalogue to build a treatment."}
+              </span>
+            </p>
+            <ThemeSwitch variant="inline" />
+          </div>
         </div>
       </header>
 
-      <div className="relative mx-auto grid max-w-[1800px] grid-cols-1 gap-5 px-4 pb-24 pt-5 xl:grid-cols-[330px_minmax(0,1fr)_400px] xl:gap-6">
+      <div className="relative mx-auto grid w-full grid-cols-1 gap-5 px-4 pt-5 xl:grid-cols-[330px_minmax(0,1fr)] xl:gap-6">
         {/* ---- the model, in the middle ---- */}
         <section
           aria-label="The anatomy"
           className="sim-rise order-1 flex flex-col gap-3 xl:order-2 xl:sticky xl:top-[84px] xl:h-[calc(100svh-140px)]"
           style={rise(80)}
         >
+          {/* The timeline sits at the top of the model, small and always in reach. */}
+          <div className="sim-rise rounded-[10px] border border-line bg-surface/60 px-2.5 py-1.5" style={rise(40)}>
+            <TimeDial
+              maxH={active.tEndH}
+              hours={hours}
+              onHours={handleHours}
+              playing={playing}
+              onTogglePlay={() => setPlaying((p) => !p)}
+              speed={speed}
+              onSpeedChange={setSpeed}
+              fullOpen={fullTimelineOpen}
+              onToggleFull={() => setFullTimelineOpen((open) => !open)}
+              sections={sections}
+              onJumpToSection={jumpToSection}
+              activeSection={activeStep}
+              tmaxH={single ? single.result.tmaxH : null}
+              disabled={Boolean(death)}
+            />
+          </div>
+
           <div className="hud-corners relative min-h-[40svh] flex-1 overflow-hidden rounded-[12px] border border-line bg-page/40 xl:min-h-0">
             <BodyFigure
               scene={scene}
@@ -603,9 +773,12 @@ export default function Simulator() {
               focusLabel={focusOrgan ? ORGAN_LABEL[focusOrgan] : null}
               onScene={setScene}
               onBrainRegion={setBrainRegion}
+              organData={hoverDataFor}
+              dead={Boolean(death)}
+              deathMessage={death?.message ?? null}
             />
             {/* The scanner sweep, the same one the landing figure has. */}
-            <div className="hud-scan" aria-hidden="true" />
+            {death ? null : <div className="hud-scan" aria-hidden="true" />}
           </div>
 
           {/* The readouts: the engine's numbers at the dial's hour. */}
@@ -685,23 +858,9 @@ export default function Simulator() {
             </p>
           </div>
 
-          {/* The dial: it moves the moment everything else is drawn from. */}
-          <div
-            className="sim-rise rounded-[10px] border border-line bg-surface/60 px-3 py-3 transition-colors duration-300 hover:border-line-strong"
-            style={rise(320)}
-          >
-            <TimeDial
-              maxH={active.tEndH}
-              hours={hours}
-              onHours={handleHours}
-              playing={playing}
-              onTogglePlay={() => setPlaying((p) => !p)}
-              tmaxH={single ? single.result.tmaxH : null}
-            />
-            <p className="mt-2 font-mono text-[10px] uppercase leading-4 tracking-[0.1em] text-ink-3">
-              Dial moves time · scroll moves the camera
-            </p>
-          </div>
+          <p className="font-mono text-[10px] uppercase leading-4 tracking-[0.1em] text-ink-3">
+            Dial moves time · scroll moves the camera · hover an organ for its data
+          </p>
 
           {brainRegion ? (
             <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-2">
@@ -767,56 +926,109 @@ export default function Simulator() {
           </div>
         </aside>
 
-        {/* ---- the walkthrough ---- */}
-        <div className="order-3 xl:order-3">
-          <div className="sticky top-[84px]">
-            <div
-              role="tablist"
-              aria-label="Right panel view"
-              className="mb-4 flex gap-1 rounded-[10px] border border-line bg-surface/60 p-1"
-            >
-              {(
-                [
-                  ["walkthrough", "Walkthrough"],
-                  ["monitor", "Organ monitor"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  role="tab"
-                  aria-selected={rightView === id}
-                  aria-controls={`right-panel-${id}`}
-                  id={`right-tab-${id}`}
-                  onClick={() => setRightView(id)}
-                  className={`flex-1 rounded-[8px] py-2 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none ${
-                    rightView === id ? "bg-brand text-[#04121a]" : "text-ink-2 hover:text-ink"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+      </div>{/* the top row ends here — everything below is reached by scrolling */}
 
-            {rightView === "monitor" ? (
-              <div
-                role="tabpanel"
-                id="right-panel-monitor"
-                aria-labelledby="right-tab-monitor"
-                className="overflow-hidden rounded-[10px] border border-line bg-surface/40"
-              >
-                <OrganMonitor
-                  runs={runs}
-                  hours={hours}
-                  focus={monitorFocus}
-                  onToggleFocus={(organ) => setMonitorFocus(organ)}
-                />
-              </div>
-            ) : null}
+      {/* ---- the graphs and the written experiment, below the 3D model ---- */}
+      <section
+        aria-label="Experiment graphs and details"
+        className="relative mx-auto w-full px-4 pb-24 pt-6"
+      >
+        <div className="mb-4 flex items-baseline justify-between gap-3 border-t border-line pt-5">
+          <h2 className="font-heading text-[15px] font-semibold uppercase tracking-[0.18em] text-ink">
+            Experiment — graphs and details
+          </h2>
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+            Scroll to explore
+          </p>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
+          {/* The healthy reference stays as a graph, beside this model's curves. */}
+          <div
+            id="experiment-graphs"
+            className="h-fit overflow-hidden rounded-[10px] border border-line bg-surface/40 xl:sticky xl:top-[84px]"
+          >
+            <OrganMonitor
+              runs={runs}
+              healthyRuns={healthyRuns}
+              hours={hours}
+              focus={monitorFocus}
+              onToggleFocus={(organ) => setMonitorFocus(organ)}
+              organProfiles={active.organProfiles}
+              dead={Boolean(death)}
+            />
           </div>
 
-          {rightView === "walkthrough" ? (
-            <div role="tabpanel" id="right-panel-walkthrough" aria-labelledby="right-tab-walkthrough">
+          {/* Live body status, the narrated walkthrough and engine summaries. */}
+          <div>
           <h2 className="sr-only">The walkthrough</h2>
+
+          {/* The walkthrough opens with a live status update of the whole body. */}
+          <section
+            aria-label="Current body status"
+            className="mb-6 rounded-[10px] border border-line bg-surface/50 p-3"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-3">
+                Body status · live
+              </p>
+              <p className="font-mono text-[11px] tabular-nums text-brand-text">
+                T+{hours.toFixed(1)} h
+              </p>
+            </div>
+            {death ? (
+              <p role="alert" className="mt-2 rounded-[6px] border border-rose-500/50 bg-rose-500/10 px-2.5 py-2 text-[12px] leading-5 text-rose-300">
+                {death.message}
+              </p>
+            ) : null}
+            <dl className="mt-3 grid grid-cols-2 gap-2">
+              {[
+                { label: "Concentration", value: `${moment.concMgPerL.toFixed(3)} mg/L` },
+                { label: "In the gut", value: `${moment.gutMg.toFixed(1)} mg` },
+                { label: "In the blood", value: `${moment.bodyMg.toFixed(1)} mg` },
+                { label: "Clearing", value: `${moment.eliminationMgPerH.toFixed(2)} mg/h` },
+              ].map((item) => (
+                <div key={item.label} className="rounded-[8px] border border-line bg-page/50 px-2.5 py-2">
+                  <dt className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
+                    {item.label}
+                  </dt>
+                  <dd className="mt-0.5 font-mono text-[14px] tabular-nums text-brand-text">
+                    {item.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {breakdown.length > 1 ? (
+              <p className="mt-2 text-[11px] leading-4 text-ink-3">
+                {breakdown.map((b) => b.name).join(" · ")} — each medicine is modelled separately.
+              </p>
+            ) : null}
+
+            {/* Selecting an organ in the monitor shows its data beside this panel. */}
+            {monitorFocus ? (
+              <div className="mt-3 rounded-[8px] border border-brand/40 bg-brand/5 px-2.5 py-2">
+                <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-brand-text">
+                  Selected organ · {ORGAN_LABEL[monitorFocus]}
+                </p>
+                <p className="mt-1 font-mono text-[12px] tabular-nums text-ink">
+                  {hoverDataFor(monitorFocus).lines.join(" · ")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const graph = document.getElementById("experiment-graphs");
+                    if (!graph) return;
+                    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                    graph.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+                  }}
+                  className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-brand-text underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  See its graph beside the healthy reference →
+                </button>
+              </div>
+            ) : null}
+          </section>
+
           {steps.map((step, index) => {
             const narration = narrate(step.organ, moment, condition, breakdown);
             const isActive = index === activeStep;
@@ -937,10 +1149,9 @@ export default function Simulator() {
               </p>
             </article>
           ))}
-            </div>
-          ) : null}
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

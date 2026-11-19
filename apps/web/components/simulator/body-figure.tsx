@@ -30,6 +30,16 @@ type BodyFigureProps = {
   onScene?: (scene: SimulatorScene | null) => void;
   /** The brain region under the pointer. */
   onBrainRegion?: (region: BrainRegion | null) => void;
+  /** Called when the pointer rests on an organ. */
+  onOrganHover?: (hover: { organ: FocusOrgan; x: number; y: number } | null) => void;
+  /** The readout shown in the hover tooltip for the organ under the pointer. */
+  organData?: (organ: FocusOrgan) => { title: string; lines: string[] };
+  /** Shows the failed-model state over the figure. */
+  dead?: boolean;
+  /** The cause of failure, named in the overlay. */
+  deathMessage?: string | null;
+  /** The lower comparison figure: no scan, no walkthrough label. */
+  healthy?: boolean;
   className?: string;
 };
 
@@ -39,19 +49,27 @@ export default function BodyFigure({
   focusLabel,
   onScene,
   onBrainRegion,
+  onOrganHover,
+  organData,
+  dead = false,
+  deathMessage = null,
+  healthy = false,
   className = "",
 }: BodyFigureProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const onSceneRef = useRef(onScene);
   const onBrainRegionRef = useRef(onBrainRegion);
+  const onOrganHoverRef = useRef(onOrganHover);
   const [status, setStatus] = useState<SceneStatus>("loading");
   const [reducedMotion, setReducedMotion] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [hover, setHover] = useState<{ organ: FocusOrgan; x: number; y: number } | null>(null);
 
   useEffect(() => {
     onSceneRef.current = onScene;
     onBrainRegionRef.current = onBrainRegion;
-  }, [onScene, onBrainRegion]);
+    onOrganHoverRef.current = onOrganHover;
+  }, [onScene, onBrainRegion, onOrganHover]);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -79,6 +97,10 @@ export default function BodyFigure({
         maxDpr: coarse ? 1.5 : 2,
         onStatus: setStatus,
         onBrainRegion: (region) => onBrainRegionRef.current?.(region),
+        onOrganHover: (next) => {
+          setHover(next);
+          onOrganHoverRef.current?.(next);
+        },
       });
       onSceneRef.current?.(scene);
 
@@ -218,6 +240,47 @@ export default function BodyFigure({
         <span ref={brainLabelRef} className="block truncate" />
         <span ref={brainPartRef} className="block truncate normal-case tracking-normal text-ink-2" />
       </div>
+
+      {/* Hover readout: this organ's data from the very same engine numbers. */}
+      {hover && organData && !healthy ? (
+        <div
+          role="tooltip"
+          className="pointer-events-none absolute z-20 max-w-[min(260px,calc(100%-8px))] rounded-[6px] border border-brand/60 bg-page/95 px-2.5 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-sm"
+          style={{
+            left: Math.max(4, Math.min(hover.x + 14, (canvasRef.current?.clientWidth ?? 400) - 220)),
+            top: Math.max(4, hover.y + 12),
+          }}
+        >
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-brand-text">
+            {organData(hover.organ).title}
+          </p>
+          {organData(hover.organ).lines.map((line) => (
+            <p key={line} className="mt-0.5 font-mono text-[11px] tabular-nums text-ink">
+              {line}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {/* The failed state, named plainly over the model. */}
+      {dead ? (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-end justify-center bg-rose-950/25 p-4">
+          <div className="max-w-[90%] rounded-[8px] border border-rose-500/60 bg-page/95 px-3 py-2 text-center backdrop-blur-sm">
+            <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-rose-400">
+              Model failed
+            </p>
+            {deathMessage ? (
+              <p className="mt-1 text-[12px] leading-5 text-ink">{deathMessage}</p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {healthy ? (
+        <p className="pointer-events-none absolute left-3 top-3 z-10 rounded-[4px] border border-line bg-page/80 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2 backdrop-blur-sm">
+          Healthy reference
+        </p>
+      ) : null}
 
       {/* The model's own state, said plainly. */}
       {status !== "ready" ? (

@@ -91,7 +91,10 @@ export function parsePrescription(text: string): ParsedPrescription {
   // Explicit times win: "100 mg at 0, 6, 12".
   const times = timesFrom(trimmed);
   if (times) {
-    const doses = times.map((timeH) => ({ timeH, doseMg: amount }));
+    const doses: DoseRow[] = times.map((timeH) => ({
+      timeH: String(timeH),
+      doseMg: String(amount),
+    }));
     const last = Math.max(...times);
     return { ok: true, doses, tEndH: windowFor(last) };
   }
@@ -102,7 +105,7 @@ export function parsePrescription(text: string): ParsedPrescription {
   // "500 mg once", or an amount alone: one dose at the start.
   if (interval === null || count === null) {
     if (/\bonce\b/i.test(trimmed) || (interval === null && count === null)) {
-      return { ok: true, doses: [{ timeH: 0, doseMg: amount }], tEndH: 12 };
+      return { ok: true, doses: [{ timeH: "0", doseMg: String(amount) }], tEndH: 12 };
     }
     if (interval !== null && count === null) {
       return {
@@ -121,9 +124,9 @@ export function parsePrescription(text: string): ParsedPrescription {
   }
 
   const doses: DoseRow[] = Array.from({ length: count }, (_, index) => ({
-    timeH: Math.round(index * interval * 2) / 2,
-    doseMg: amount,
+    timeH: String(Math.round(index * interval * 2) / 2),
+    doseMg: String(amount),
   }));
-  const last = doses[doses.length - 1].timeH;
+  const last = Number(doses[doses.length - 1].timeH);
   return { ok: true, doses, tEndH: windowFor(last) };
 }

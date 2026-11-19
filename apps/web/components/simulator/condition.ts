@@ -80,7 +80,7 @@ export const CONDITIONS: Condition[] = [
   {
     id: "kidney",
     label: "Kidney disease",
-    blurb: "The kidneys and the liver, the two clearances.",
+    blurb: "The kidneys and the liver, seen through the model's single clearance term.",
     organs: ["kidneys", "liver", "heart"],
   },
 ];
@@ -233,9 +233,9 @@ function organContent(
     case "kidneys":
       return {
         body:
-          `The kidneys filter what the liver has already cleared. The model runs a single ` +
+          `The kidneys are one of the routes the body uses to remove medicines. The model runs a single ` +
           `clearance term, so ${f(moment.eliminationMgPerH, 2)} mg/h is leaving the blood in total ` +
-          `rather than being split between the two organs.`,
+          `rather than being split between organs.`,
         figures: [
           { label: "Total clearance", value: `${f(moment.eliminationMgPerH, 2)} mg/h` },
           { label: "In the blood", value: `${f(moment.bodyMg)} mg` },

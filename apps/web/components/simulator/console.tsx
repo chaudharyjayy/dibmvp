@@ -19,15 +19,51 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CONDITIONS } from "./condition";
+import { CONDITIONS, conditionById } from "./condition";
+import { suggestionsFor } from "./medicine-suggestions";
 import { parsePrescription } from "./prescription";
 import { getApprovedPk, searchCatalogue } from "@/lib/catalogue";
+import {
+  CLEARANCE_SCENARIOS,
+  SCENARIO_CONTEXT,
+  type ClearanceScenarioId,
+} from "@/lib/kidney-scenario";
 import type { DrugParameterCitation } from "@dib/data-client";
 import { isValidated } from "@/lib/validation-status";
+import { readMedicalPdf, type PdfImportResult } from "@/lib/pdf-import";
+import {
+  HEART_PROFILES,
+  KIDNEY_PROFILES,
+  LIVER_PROFILES,
+  LUNG_PROFILES,
+  getOrganProfilesForCondition,
+  type OrganProfileSelection,
+  type HeartProfileId,
+  type KidneyProfileId,
+  type LiverProfileId,
+  type LungProfileId,
+} from "@dib/engine";
 
+/**
+ * Number boxes keep their text. An empty box is an empty string — never a 0
+ * quietly put back by a change or blur handler. The empty string is resolved
+ * to 0 only when the simulation is run.
+ */
 export type DoseRow = {
-  timeH: number;
-  doseMg: number;
+  timeH: string;
+  doseMg: string;
+  doseFromPdf?: boolean;
+  timeFromPdf?: boolean;
+};
+
+/** A value from a PDF that had no matching box, shown as its own input. */
+export type ExtraField = {
+  key: string;
+  label: string;
+  value: string;
+  unit?: string;
+  range?: string;
+  fromPdf?: boolean;
 };
 
 /** One medicine in the treatment: identity from the catalogue, rows editable. */
@@ -45,12 +81,127 @@ export type DrugLine = {
 export type SimulatorInput = {
   conditionId: string;
   description: string;
-  ageYears: number;
-  weightKg: number;
+  ageYears: string;
+  weightKg: string;
   sex: "female" | "male" | "other";
   drugs: DrugLine[];
   tEndH: number;
+  organProfiles?: OrganProfileSelection;
+  /** An extra synthetic what-if on clearance, on top of the organ profiles. */
+  clearanceScenario: ClearanceScenarioId;
+  /** Values from an uploaded PDF with no matching built-in box. */
+  extraFields?: ExtraField[];
+  /** True when age was filled from a PDF, for the "from PDF" badge. */
+  ageFromPdf?: boolean;
+  /** True when weight was filled from a PDF, for the "from PDF" badge. */
+  weightFromPdf?: boolean;
 };
+
+/**
+ * An empty number box counts as 0 at run time, and shows 0 from that moment.
+ * Nothing here writes back on change, blur, or any other event — the user can
+ * leave a box empty for as long as they like.
+ */
+export function normalizeInput(input: SimulatorInput): SimulatorInput {
+  const zero = (text: string) => (text.trim() === "" ? "0" : text);
+  return {
+    ...input,
+    ageYears: zero(input.ageYears),
+    weightKg: zero(input.weightKg),
+    drugs: input.drugs.map((drug) => ({
+      ...drug,
+      doses: drug.doses.map((row) => ({
+        ...row,
+        doseMg: zero(row.doseMg),
+        timeH: zero(row.timeH),
+      })),
+    })),
+    extraFields: input.extraFields?.map((field) => ({ ...field, value: zero(field.value) })),
+  };
+}
+
+/**
+ * Merge values read from a PDF into the form. Matching boxes are filled in
+ * place; everything else becomes a labelled extra field. Every filled box is
+ * marked so the visitor can check and edit it before running.
+ */
+export function applyPdfImport(input: SimulatorInput, imported: PdfImportResult): SimulatorInput {
+  let ageYears = input.ageYears;
+  let weightKg = input.weightKg;
+  let ageFromPdf = input.ageFromPdf ?? false;
+  let weightFromPdf = input.weightFromPdf ?? false;
+  let tEndH = input.tEndH;
+  const extraByKey = new Map((input.extraFields ?? []).map((field) => [field.key, field]));
+  const dosesByDrug = new Map(input.drugs.map((drug) => [drug.drugId, [...drug.doses]]));
+  let doseCursor = 0;
+
+  for (const match of imported.matches) {
+    switch (match.key) {
+      case "ageYears":
+        ageYears = match.value;
+        ageFromPdf = true;
+        break;
+      case "weightKg":
+        weightKg = match.value;
+        weightFromPdf = true;
+        break;
+      case "tEndH": {
+        const hours = Number(match.value);
+        if (Number.isFinite(hours) && hours > 0) tEndH = Math.min(168, Math.round(hours));
+        break;
+      }
+      case "doseMg":
+      case "timeH": {
+        // Fill the first existing dose row; if there is none (or the visitor
+        // has already received one PDF dose), add a row in the first medicine.
+        const firstDrug = input.drugs[0];
+        if (!firstDrug) break;
+        const rows = dosesByDrug.get(firstDrug.drugId) ?? [];
+        let row = rows[doseCursor];
+        if (!row) {
+          row = { doseMg: "0", timeH: "0" };
+          rows.push(row);
+        }
+        rows[doseCursor] = {
+          ...row,
+          ...(match.key === "doseMg"
+            ? { doseMg: match.value, doseFromPdf: true }
+            : { timeH: match.value, timeFromPdf: true }),
+        };
+        if (match.key === "timeH") doseCursor += 1;
+        break;
+      }
+      case "extra": {
+        if (!match.extraKey) break;
+        const unit = match.unit ? ` ${match.unit}` : "";
+        const range = match.range ? ` · normal ${match.range}` : "";
+        extraByKey.set(match.extraKey, {
+          key: match.extraKey,
+          label: `${match.name}${unit}${range}`,
+          value: match.value,
+          unit: match.unit,
+          range: match.range,
+          fromPdf: true,
+        });
+        break;
+      }
+    }
+  }
+
+  return {
+    ...input,
+    ageYears,
+    weightKg,
+    ageFromPdf,
+    weightFromPdf,
+    tEndH,
+    drugs: input.drugs.map((drug) => ({
+      ...drug,
+      doses: dosesByDrug.get(drug.drugId) ?? drug.doses,
+    })),
+    extraFields: [...extraByKey.values()],
+  };
+}
 
 type ConsoleProps = {
   value: SimulatorInput;
@@ -116,10 +267,14 @@ export default function SimulatorConsole({
    * says what is wrong and where, in the same place as everything else.
    */
   const localError = (() => {
-    if (!Number.isInteger(value.ageYears) || value.ageYears < 1 || value.ageYears > 120) {
+    // An empty box and 0 both mean "not set": the engine uses a reference
+    // adult for those profile values. Anything else must be in range.
+    const age = value.ageYears.trim() === "" ? 0 : Number(value.ageYears);
+    if (!Number.isFinite(age) || (age !== 0 && (!Number.isInteger(age) || age < 1 || age > 120))) {
       return "Age must be a whole number between 1 and 120.";
     }
-    if (!Number.isFinite(value.weightKg) || value.weightKg <= 0 || value.weightKg >= 400) {
+    const weight = value.weightKg.trim() === "" ? 0 : Number(value.weightKg);
+    if (!Number.isFinite(weight) || (weight !== 0 && (weight <= 0 || weight >= 400))) {
       return "Weight must be a number greater than 0 and below 400 kg.";
     }
     if (value.drugs.length === 0) {
@@ -133,17 +288,18 @@ export default function SimulatorConsole({
       if (drug.doses.length === 0) {
         return `Add at least one dose for ${drug.name}.`;
       }
-      if (
-        drug.doseRange &&
-        drug.doses.some((r) => Number.isFinite(r.doseMg) && r.doseMg > (drug.doseRange as [number, number])[1])
-      ) {
-        return `Outside the range this source studied (${drug.name} ${drug.doseRange[0]}–${drug.doseRange[1]} mg). The model is not valid here.`;
-      }
-      if (drug.doses.some((r) => !Number.isFinite(r.doseMg) || r.doseMg <= 0 || r.doseMg > 10_000)) {
-        return `Each ${drug.name} dose must be a number greater than 0 and at most 10,000 mg.`;
-      }
-      if (drug.doses.some((r) => !Number.isFinite(r.timeH) || r.timeH < 0 || r.timeH > value.tEndH)) {
-        return `Each ${drug.name} dose time must be between 0 and ${value.tEndH} h — the simulated window.`;
+      // There is deliberately no upper dose bound: any amount can be entered.
+      // A high amount is allowed through to the engine, where the toxicity
+      // model can fail an organ and stop the run.
+      for (const row of drug.doses) {
+        const dose = row.doseMg.trim() === "" ? 0 : Number(row.doseMg);
+        if (!Number.isFinite(dose) || dose < 0) {
+          return `Each ${drug.name} dose must be a number of 0 or greater.`;
+        }
+        const time = row.timeH.trim() === "" ? 0 : Number(row.timeH);
+        if (!Number.isFinite(time) || time < 0 || time > value.tEndH) {
+          return `Each ${drug.name} dose time must be between 0 and ${value.tEndH} h — the simulated window.`;
+        }
       }
     }
     return null;
@@ -170,7 +326,14 @@ export default function SimulatorConsole({
           <select
             id="condition"
             value={value.conditionId}
-            onChange={(event) => set("conditionId", event.target.value)}
+            onChange={(event) => {
+              const nextId = event.target.value;
+              onChange({
+                ...value,
+                conditionId: nextId,
+                organProfiles: getOrganProfilesForCondition(nextId),
+              });
+            }}
             className={`${inputClass} appearance-none pr-9`}
           >
             {CONDITIONS.map((condition) => (
@@ -196,6 +359,7 @@ export default function SimulatorConsole({
       <div>
         <span className={fieldLabel}>Medicines</span>
         <DrugSearch
+          conditionId={value.conditionId}
           selectedIds={value.drugs.map((d) => d.drugId)}
           full={value.drugs.length >= MAX_DRUGS}
           onAdd={(hit, range) =>
@@ -215,10 +379,7 @@ export default function SimulatorConsole({
             })
           }
         />
-        <p className="mt-2 text-[12px] leading-4 text-ink-3">
-          From the catalogue, not from free text. A medicine is addable only when its
-          pharmacokinetics are sourced and cited — up to {MAX_DRUGS} in one treatment.
-        </p>
+        <PdfUpload value={value} onChange={onChange} />
 
         <div className="mt-3 space-y-2">
           {value.drugs.map((drug, index) => (
@@ -236,7 +397,13 @@ export default function SimulatorConsole({
                   tEndH,
                   drugs: value.drugs.map((d, i) =>
                     i === index
-                      ? { ...d, doses: doses.map((r) => ({ ...r, timeH: Math.min(r.timeH, tEndH) })) }
+                      ? {
+                          ...d,
+                          doses: doses.map((r) => ({
+                            ...r,
+                            timeH: String(Math.min(Number(r.timeH) || 0, tEndH)),
+                          })),
+                        }
                       : d
                   ),
                 });
@@ -279,16 +446,14 @@ export default function SimulatorConsole({
             <input
               id="age"
               type="number"
-              min={1}
-              max={120}
               step={1}
+              inputMode="numeric"
               value={value.ageYears}
-              onChange={(event) => set("ageYears", Number(event.target.value))}
+              onChange={(event) => set("ageYears", event.target.value)}
               className={inputClass}
-              aria-invalid={!Number.isInteger(value.ageYears) || value.ageYears < 1 || value.ageYears > 120}
             />
             <p className="mt-1 text-center font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
-              years
+              years{value.ageFromPdf ? " · from PDF" : ""}
             </p>
           </div>
           <div>
@@ -298,16 +463,14 @@ export default function SimulatorConsole({
             <input
               id="weight"
               type="number"
-              min={0.5}
-              max={399}
               step={0.5}
+              inputMode="decimal"
               value={value.weightKg}
-              onChange={(event) => set("weightKg", Number(event.target.value))}
+              onChange={(event) => set("weightKg", event.target.value)}
               className={inputClass}
-              aria-invalid={!Number.isFinite(value.weightKg) || value.weightKg <= 0 || value.weightKg >= 400}
             />
             <p className="mt-1 text-center font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
-              kg
+              kg{value.weightFromPdf ? " · from PDF" : ""}
             </p>
           </div>
           <div>
@@ -340,6 +503,217 @@ export default function SimulatorConsole({
         </p>
       </div>
 
+      {/* Values from a PDF that had no matching box above. */}
+      {value.extraFields && value.extraFields.length > 0 ? (
+        <div className="rounded-xl border border-line bg-surface/40 p-4">
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className={fieldLabel}>Values from the PDF</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-brand-text">
+              {value.extraFields.length} added
+            </span>
+          </div>
+          <p className="text-[11px] leading-4 text-ink-3">
+            These had no matching input above. Check each value before running.
+          </p>
+          <div className="mt-3 space-y-2">
+            {value.extraFields.map((field) => (
+              <div key={field.key} className="flex items-center gap-2">
+                <label className="min-w-0 flex-1" htmlFor={`extra-${field.key}`}>
+                  <span className="block truncate text-[12px] text-ink-2" title={field.label}>
+                    {field.label}
+                  </span>
+                  {field.fromPdf ? (
+                    <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-brand-text">
+                      from PDF
+                    </span>
+                  ) : null}
+                </label>
+                <input
+                  id={`extra-${field.key}`}
+                  type="number"
+                  value={field.value}
+                  onChange={(event) =>
+                    set("extraFields", (value.extraFields ?? []).map((f) =>
+                      f.key === field.key ? { ...f, value: event.target.value } : f
+                    ))
+                  }
+                  className={`${smallInputClass} w-28`}
+                />
+                {field.unit ? (
+                  <span className="shrink-0 font-mono text-[11px] text-ink-3">{field.unit}</span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() =>
+                    set("extraFields", (value.extraFields ?? []).filter((f) => f.key !== field.key))
+                  }
+                  className="relative shrink-0 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3 transition-colors duration-150 after:absolute after:-inset-3 after:content-[''] hover:text-rose-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                  aria-label={`Remove ${field.label}`}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Organ Archetype Profiles */}
+      <div className="rounded-xl border border-line bg-surface/40 p-4">
+        <div className="flex items-baseline justify-between mb-2">
+          <span className={fieldLabel}>Organ Archetypes & Physiology</span>
+          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-brand-text">
+            Multi-Organ Reference
+          </span>
+        </div>
+        <p className="text-[11px] leading-4 text-ink-3 mb-3">
+          Synthetic clinical archetypes for cardiovascular, renal, hepatic, and pulmonary function.
+        </p>
+
+        <div className="space-y-3">
+          {/* Heart */}
+          <div>
+            <label className="block font-mono text-[10px] uppercase tracking-[0.1em] text-ink-2 mb-1" htmlFor="heart-profile">
+              Heart ({HEART_PROFILES.find((p) => p.profile_id === value.organProfiles?.heartId)?.nyha_class === "none" ? "Healthy" : `NYHA ${HEART_PROFILES.find((p) => p.profile_id === value.organProfiles?.heartId)?.nyha_class}`})
+            </label>
+            <select
+              id="heart-profile"
+              value={value.organProfiles?.heartId ?? "heart_healthy_adult"}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  organProfiles: {
+                    ...value.organProfiles,
+                    heartId: e.target.value as HeartProfileId,
+                  },
+                })
+              }
+              className={`${inputClass} text-xs py-1.5`}
+            >
+              {HEART_PROFILES.map((p) => (
+                <option key={p.profile_id} value={p.profile_id} className="bg-surface text-ink">
+                  {p.label} (LVEF {p.lvef_pct}%, HR {p.resting_heart_rate_bpm})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Kidney */}
+          <div>
+            <label className="block font-mono text-[10px] uppercase tracking-[0.1em] text-ink-2 mb-1" htmlFor="kidney-profile">
+              Kidneys ({KIDNEY_PROFILES.find((p) => p.profile_id === value.organProfiles?.kidneyId)?.ckd_stage})
+            </label>
+            <select
+              id="kidney-profile"
+              value={value.organProfiles?.kidneyId ?? "kidney_healthy_adult"}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  organProfiles: {
+                    ...value.organProfiles,
+                    kidneyId: e.target.value as KidneyProfileId,
+                  },
+                })
+              }
+              className={`${inputClass} text-xs py-1.5`}
+            >
+              {KIDNEY_PROFILES.map((p) => (
+                <option key={p.profile_id} value={p.profile_id} className="bg-surface text-ink">
+                  {p.label} (eGFR {p.egfr_ml_min_1_73m2}, CL scale {(p.clearance_scaling_factor * 100).toFixed(0)}%)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Liver */}
+          <div>
+            <label className="block font-mono text-[10px] uppercase tracking-[0.1em] text-ink-2 mb-1" htmlFor="liver-profile">
+              Liver ({LIVER_PROFILES.find((p) => p.profile_id === value.organProfiles?.liverId)?.child_pugh_class === "none" ? "Normal" : `Child-Pugh ${LIVER_PROFILES.find((p) => p.profile_id === value.organProfiles?.liverId)?.child_pugh_class}`})
+            </label>
+            <select
+              id="liver-profile"
+              value={value.organProfiles?.liverId ?? "liver_healthy_adult"}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  organProfiles: {
+                    ...value.organProfiles,
+                    liverId: e.target.value as LiverProfileId,
+                  },
+                })
+              }
+              className={`${inputClass} text-xs py-1.5`}
+            >
+              {LIVER_PROFILES.map((p) => (
+                <option key={p.profile_id} value={p.profile_id} className="bg-surface text-ink">
+                  {p.label} (CL scale {(p.clearance_scaling_factor * 100).toFixed(0)}%)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Lungs */}
+          <div>
+            <label className="block font-mono text-[10px] uppercase tracking-[0.1em] text-ink-2 mb-1" htmlFor="lung-profile">
+              Lungs ({LUNG_PROFILES.find((p) => p.profile_id === value.organProfiles?.lungId)?.smoking_status === "never" ? "Non-smoker" : `Smoker (${LUNG_PROFILES.find((p) => p.profile_id === value.organProfiles?.lungId)?.pack_years} pack-yrs)`})
+            </label>
+            <select
+              id="lung-profile"
+              value={value.organProfiles?.lungId ?? "lung_healthy_adult"}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  organProfiles: {
+                    ...value.organProfiles,
+                    lungId: e.target.value as LungProfileId,
+                  },
+                })
+              }
+              className={`${inputClass} text-xs py-1.5`}
+            >
+              {LUNG_PROFILES.map((p) => (
+                <option key={p.profile_id} value={p.profile_id} className="bg-surface text-ink">
+                  {p.label} (FEV1 {p.fev1_pct_predicted}%, SpO2 {p.spo2_rest_pct}%)
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Extra clearance what-if — a model setting, never a patient measurement. */}
+      <fieldset>
+        <legend className={fieldLabel}>Model what-if · extra clearance</legend>
+        <p className="mb-2 text-[11px] leading-4 text-ink-3">
+          Applied on top of the organ profiles above. The cited baseline run is
+          kept beside it for comparison.
+        </p>
+        <div className="space-y-1.5">
+          {CLEARANCE_SCENARIOS.map((scenario) => (
+            <label
+              key={scenario.id}
+              className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line bg-surface/60 px-3 py-2 transition-colors duration-150 hover:border-line-strong focus-within:border-brand motion-reduce:transition-none"
+            >
+              <input
+                type="radio"
+                name="clearance-scenario"
+                value={scenario.id}
+                checked={value.clearanceScenario === scenario.id}
+                onChange={() => set("clearanceScenario", scenario.id)}
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#22d3ee]"
+              />
+              <span>
+                <span className="block text-[13px] text-ink">{scenario.label}</span>
+                <span className="mt-0.5 block text-[12px] leading-4 text-ink-3">
+                  {scenario.note}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-2 text-[12px] leading-4 text-ink-3">{SCENARIO_CONTEXT}</p>
+      </fieldset>
+
       {/* Window */}
       <div>
         <div className="flex items-center gap-3">
@@ -356,7 +730,10 @@ export default function SimulatorConsole({
                 tEndH: next,
                 drugs: value.drugs.map((d) => ({
                   ...d,
-                  doses: d.doses.map((r) => ({ ...r, timeH: Math.min(r.timeH, next) })),
+                  doses: d.doses.map((r) => ({
+                    ...r,
+                    timeH: String(Math.min(Number(r.timeH) || 0, next)),
+                  })),
                 })),
               });
             }}
@@ -393,10 +770,12 @@ export default function SimulatorConsole({
 /* ---- the catalogue search ------------------------------------------------ */
 
 function DrugSearch({
+  conditionId,
   selectedIds,
   full,
   onAdd,
 }: {
+  conditionId: string;
   selectedIds: string[];
   full: boolean;
   onAdd: (hit: CatalogueHit, range: [number, number] | null) => void;
@@ -442,9 +821,9 @@ function DrugSearch({
   }, [open]);
 
   /** Adds a drug: fetch its approved PK row first; the add confirms it exists. */
-  const add = (hit: CatalogueHit) => {
+  const add = (hit: CatalogueHit, shownName?: string) => {
     setOpen(false);
-    setQuery("");
+    setQuery(shownName ?? "");
     setBusy(true);
     Promise.resolve(getApprovedPk(hit.id))
       .then((pk) => {
@@ -457,6 +836,13 @@ function DrugSearch({
       .catch(() => onAdd(hit, null))
       .finally(() => setBusy(false));
   };
+
+  /** A one-click button is the same add path, with the name left in the field. */
+  const addQuick = (id: string, name: string) => {
+    add({ id, name, routes: [], pkStatus: "reviewed", productCount: 0 }, name);
+  };
+
+  const suggestions = suggestionsFor(conditionId);
 
   return (
     <div ref={boxRef} className="relative">
@@ -474,6 +860,43 @@ function DrugSearch({
         disabled={full}
         className={inputClass}
       />
+
+      {/* Suggestions for the picked condition — directly under the search field. */}
+      <div className="mt-2">
+        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+          Commonly used for {conditionById(conditionId).label}
+        </p>
+        {suggestions.length > 0 ? (
+          <div
+            className="mt-1.5 flex flex-wrap gap-1.5"
+            aria-label="Suggested medicines for the selected condition"
+          >
+            {suggestions.map((medicine) => (
+              <button
+                key={medicine.id}
+                type="button"
+                disabled={full || selectedIds.includes(medicine.id)}
+                onClick={() => addQuick(medicine.id, medicine.name)}
+                className={`${ghostButtonClass} normal-case tracking-normal disabled:cursor-not-allowed disabled:opacity-45`}
+              >
+                {selectedIds.includes(medicine.id) ? "✓ " : "+ "}
+                {medicine.name}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-1 text-[12px] leading-4 text-ink-3">
+            No medicine with a sourced PK row matches this condition yet. Search
+            the catalogue above, or leave the treatment empty.
+          </p>
+        )}
+        <p className="mt-1.5 text-[11px] leading-4 text-ink-3">
+          Examples from the sourced catalogue — up to {MAX_DRUGS} medicines. This
+          model shows how a dose moves through the body; it does not model
+          disease treatment.
+        </p>
+      </div>
+
       {busy ? (
         <span
           aria-hidden="true"
@@ -527,6 +950,88 @@ function DrugSearch({
   );
 }
 
+
+/* ---- upload a medical PDF ----------------------------------------------- */
+
+function PdfUpload({
+  value,
+  onChange,
+}: {
+  value: SimulatorInput;
+  onChange: (next: SimulatorInput) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const read = useCallback(
+    async (file: File) => {
+      setBusy(true);
+      setError(null);
+      setNote(null);
+      try {
+        const imported = await readMedicalPdf(file);
+        onChange(applyPdfImport(value, imported));
+        const filled = imported.matches.filter((m) => m.key !== "extra").length;
+        const added = imported.matches.filter((m) => m.key === "extra").length;
+        setNote(
+          `Read ${imported.valueCount} value${imported.valueCount === 1 ? "" : "s"} from ${file.name} — ${filled} filled an existing box, ${added} added as a new field. Check them before running.`
+        );
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "The PDF could not be read.");
+      } finally {
+        setBusy(false);
+        if (inputRef.current) inputRef.current.value = "";
+      }
+    },
+    [onChange, value]
+  );
+
+  return (
+    <div className="mt-3 rounded-xl border border-line bg-surface/40 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-2">
+            Upload a medical PDF
+          </p>
+          <p className="mt-0.5 text-[11px] leading-4 text-ink-3">
+            Labelled values fill the boxes above; anything else becomes its own field.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+          className={`${ghostButtonClass} shrink-0 disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          {busy ? "Reading…" : "Choose PDF"}
+        </button>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="hidden"
+        aria-label="Upload a medical PDF"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void read(file);
+        }}
+      />
+      {error ? (
+        <p role="alert" className="mt-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-2 text-[12px] leading-4 text-rose-300">
+          {error}
+        </p>
+      ) : null}
+      {note ? (
+        <p role="status" className="mt-2 text-[12px] leading-4 text-brand-text">
+          {note}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 /* ---- the sources behind a medicine's numbers -------------------------- */
 
@@ -651,7 +1156,11 @@ function DrugCard({
   const belowMin =
     drug.doseRange?.[0] ?? null;
   const anyBelow =
-    belowMin != null && drug.doses.some((r) => Number.isFinite(r.doseMg) && r.doseMg > 0 && r.doseMg < belowMin);
+    belowMin != null &&
+    drug.doses.some((r) => {
+      const dose = Number(r.doseMg);
+      return r.doseMg.trim() !== "" && Number.isFinite(dose) && dose > 0 && dose < belowMin;
+    });
 
   const rangeHint = drug.doseRange
     ? `studied range ${drug.doseRange[0]}–${drug.doseRange[1]} mg`
@@ -735,42 +1244,42 @@ function DrugCard({
             <input
               id={`dose-${index}-${i}`}
               type="number"
-              min={1}
-              max={10000}
               step={1}
+              inputMode="numeric"
               value={row.doseMg}
               onChange={(event) =>
                 onPatch({
                   doses: drug.doses.map((r, j) =>
-                    j === i ? { ...r, doseMg: Number(event.target.value) } : r
+                    j === i ? { ...r, doseMg: event.target.value } : r
                   ),
                 })
               }
               className={`${smallInputClass} w-24`}
-              aria-invalid={!Number.isFinite(row.doseMg) || row.doseMg <= 0 || row.doseMg > 10_000}
             />
-            <span className="shrink-0 font-mono text-[11px] text-ink-3">mg</span>
+            <span className="shrink-0 font-mono text-[11px] text-ink-3">
+              mg{row.doseFromPdf ? " · PDF" : ""}
+            </span>
             <label className="sr-only" htmlFor={`time-${index}-${i}`}>
               {drug.name} dose {i + 1} time in hours
             </label>
             <input
               id={`time-${index}-${i}`}
               type="number"
-              min={0}
-              max={tEndH}
               step={0.5}
+              inputMode="decimal"
               value={row.timeH}
               onChange={(event) =>
                 onPatch({
                   doses: drug.doses.map((r, j) =>
-                    j === i ? { ...r, timeH: Number(event.target.value) } : r
+                    j === i ? { ...r, timeH: event.target.value } : r
                   ),
                 })
               }
               className={`${smallInputClass} w-24`}
-              aria-invalid={!Number.isFinite(row.timeH) || row.timeH < 0 || row.timeH > tEndH}
             />
-            <span className="shrink-0 font-mono text-[11px] text-ink-3">h</span>
+            <span className="shrink-0 font-mono text-[11px] text-ink-3">
+              h{row.timeFromPdf ? " · PDF" : ""}
+            </span>
             {drug.doses.length > 1 ? (
               <button
                 type="button"
@@ -790,8 +1299,8 @@ function DrugCard({
               doses: [
                 ...drug.doses,
                 {
-                  timeH: Math.min(tEndH, (drug.doses[drug.doses.length - 1]?.timeH ?? 0) + 6),
-                  doseMg: drug.doses[drug.doses.length - 1]?.doseMg ?? 100,
+                  timeH: String(Math.min(tEndH, Number(drug.doses[drug.doses.length - 1]?.timeH ?? 0) + 6)),
+                  doseMg: "0",
                 },
               ],
             })

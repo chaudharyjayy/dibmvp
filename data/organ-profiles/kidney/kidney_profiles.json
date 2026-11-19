@@ -1,0 +1,102 @@
+{
+  "dataset": "kidney_organ_profiles",
+  "version": "0.1-synthetic",
+  "generated_for": "Virtual Human Sandbox hackathon prototype",
+  "disclaimer": "These are illustrative, synthetic reference profiles built from the public KDIGO chronic kidney disease (CKD) staging system and typical physiology ranges. They are NOT real patient records and are NOT individually cited the way the drug PK table requires. Treat them as placeholder data to unblock rendering and simulation, and replace with reviewed, cited values before any claim beyond a hackathon demo.",
+  "field_notes": {
+    "egfr_ml_min_1_73m2": "Estimated glomerular filtration rate, normalized to a standard body surface area; the main overall measure of kidney function",
+    "ckd_stage": "KDIGO chronic kidney disease stage, G1 (normal/high) through G5 (kidney failure)",
+    "serum_creatinine_mg_dl": "Waste marker from muscle breakdown; rises as filtration falls",
+    "bun_mg_dl": "Blood urea nitrogen, a second waste marker, less specific than creatinine",
+    "urine_acr_mg_g": "Urine albumin-to-creatinine ratio; a marker of structural kidney damage, can be abnormal even with normal eGFR",
+    "mean_arterial_pressure_mmhg": "Typical blood pressure state associated with this profile, since blood pressure both affects and is affected by kidney function",
+    "nephrotoxic_sensitivity_multiplier": "Relative multiplier used by the simulation for how much a nephrotoxic drug (e.g. an NSAID or aminoglycoside) damages this kidney per unit exposure (1.0 = healthy baseline)",
+    "clearance_scaling_factor": "Relative multiplier applied to a kidney-cleared drug's normal clearance rate for this profile (1.0 = healthy baseline, lower = drug stays in the body longer)"
+  },
+  "profiles": [
+    {
+      "profile_id": "kidney_healthy_adult",
+      "label": "Healthy adult",
+      "comorbidities": [],
+      "egfr_ml_min_1_73m2": 100,
+      "ckd_stage": "G1 (normal)",
+      "serum_creatinine_mg_dl": 0.9,
+      "bun_mg_dl": 14,
+      "urine_acr_mg_g": 10,
+      "mean_arterial_pressure_mmhg": 90,
+      "nephrotoxic_sensitivity_multiplier": 1.0,
+      "clearance_scaling_factor": 1.0,
+      "basis": "Standard healthy-adult reference ranges for eGFR, creatinine and BUN"
+    },
+    {
+      "profile_id": "kidney_ckd_stage2_diabetic",
+      "label": "Mild CKD, early diabetic nephropathy",
+      "comorbidities": ["Type 2 diabetes"],
+      "egfr_ml_min_1_73m2": 75,
+      "ckd_stage": "G2 (mildly decreased)",
+      "serum_creatinine_mg_dl": 1.1,
+      "bun_mg_dl": 18,
+      "urine_acr_mg_g": 80,
+      "mean_arterial_pressure_mmhg": 95,
+      "nephrotoxic_sensitivity_multiplier": 1.3,
+      "clearance_scaling_factor": 0.8,
+      "basis": "KDIGO stage G2 is eGFR 60-89; elevated urine ACR (>30 mg/g) is the classic early sign of diabetic kidney damage even before eGFR drops much"
+    },
+    {
+      "profile_id": "kidney_ckd_stage3_hypertensive",
+      "label": "Moderate CKD, hypertensive nephrosclerosis",
+      "comorbidities": ["Hypertension", "Nephrosclerosis"],
+      "egfr_ml_min_1_73m2": 45,
+      "ckd_stage": "G3b (moderately to severely decreased)",
+      "serum_creatinine_mg_dl": 1.8,
+      "bun_mg_dl": 28,
+      "urine_acr_mg_g": 150,
+      "mean_arterial_pressure_mmhg": 110,
+      "nephrotoxic_sensitivity_multiplier": 1.8,
+      "clearance_scaling_factor": 0.5,
+      "basis": "KDIGO stage G3b is eGFR 30-44; long-standing high blood pressure damaging the small kidney vessels is a leading cause of CKD at this stage"
+    },
+    {
+      "profile_id": "kidney_ckd_stage4_diabetic_hypertensive",
+      "label": "Severe CKD, combined diabetic and hypertensive damage",
+      "comorbidities": ["Type 2 diabetes", "Hypertension"],
+      "egfr_ml_min_1_73m2": 25,
+      "ckd_stage": "G4 (severely decreased)",
+      "serum_creatinine_mg_dl": 3.0,
+      "bun_mg_dl": 45,
+      "urine_acr_mg_g": 400,
+      "mean_arterial_pressure_mmhg": 115,
+      "nephrotoxic_sensitivity_multiplier": 2.5,
+      "clearance_scaling_factor": 0.3,
+      "basis": "KDIGO stage G4 is eGFR 15-29; combined diabetes and hypertension is a common real-world pattern at this severity"
+    },
+    {
+      "profile_id": "kidney_aki_recovery",
+      "label": "Recovering from acute kidney injury",
+      "comorbidities": ["Recent acute kidney injury (resolving)"],
+      "egfr_ml_min_1_73m2": 55,
+      "ckd_stage": "G3a (mildly to moderately decreased, improving)",
+      "serum_creatinine_mg_dl": 1.5,
+      "bun_mg_dl": 22,
+      "urine_acr_mg_g": 50,
+      "mean_arterial_pressure_mmhg": 88,
+      "nephrotoxic_sensitivity_multiplier": 2.0,
+      "clearance_scaling_factor": 0.6,
+      "basis": "A kidney recovering from a recent acute injury is disproportionately sensitive to a second nephrotoxic hit even though its resting eGFR looks only moderately reduced; this profile exists to demo that extra fragility"
+    },
+    {
+      "profile_id": "kidney_ckd_stage5_failure",
+      "label": "Kidney failure",
+      "comorbidities": ["End-stage kidney disease"],
+      "egfr_ml_min_1_73m2": 10,
+      "ckd_stage": "G5 (kidney failure)",
+      "serum_creatinine_mg_dl": 6.5,
+      "bun_mg_dl": 80,
+      "urine_acr_mg_g": 800,
+      "mean_arterial_pressure_mmhg": 100,
+      "nephrotoxic_sensitivity_multiplier": 3.0,
+      "clearance_scaling_factor": 0.1,
+      "basis": "KDIGO stage G5 is eGFR < 15; kidney-cleared drugs accumulate heavily and often need dose adjustment or dialysis timing in real care"
+    }
+  ]
+}

@@ -59,6 +59,29 @@ describe('ReportInputSchema', () => {
     }
   });
 
+  it('accepts the clearance what-if saved with the metrics', () => {
+    const parsed = ReportInputSchema.safeParse({
+      ...base,
+      metrics: {
+        ...base.metrics,
+        modelScenario: { id: 'reduced', clearanceMultiplier: 0.5 },
+      },
+      engineVersion: 'v',
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('rejects an unknown scenario id or a multiplier above one', () => {
+    const withScenario = (modelScenario: unknown) =>
+      ReportInputSchema.safeParse({
+        ...base,
+        metrics: { ...base.metrics, modelScenario },
+        engineVersion: 'v',
+      });
+    expect(withScenario({ id: 'severe', clearanceMultiplier: 0.25 }).success).toBe(false);
+    expect(withScenario({ id: 'reduced', clearanceMultiplier: 1.5 }).success).toBe(false);
+  });
+
   it('rejects a title longer than 100 characters', () => {
     const parsed = ReportInputSchema.safeParse({ ...base, title: 'x'.repeat(101), engineVersion: 'v' });
     expect(parsed.success).toBe(false);
