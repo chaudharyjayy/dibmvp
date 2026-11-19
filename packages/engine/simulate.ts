@@ -1,4 +1,6 @@
 import { SimInput, SimResult, DoseEvent, Drug } from './types';
+import { computeOrganAdjustments } from './organProfiles';
+import { assessToxicity } from './toxicity';
 
 const kaOf = (drug: Drug): number | null => drug.ka_per_h;
 const fOf = (drug: Drug): number | null => drug.F;
@@ -98,7 +100,18 @@ export function simulate(input: SimInput): SimResult {
 
   // ---- model parameters (per-kg scaling, see header comment) ---------------
   const V = vPerKg * profile.weightKg; // L
-  const CL = clPerKg * profile.weightKg; // L/h
+  let CL = clPerKg * profile.weightKg; // L/h
+
+  if (profile.organProfiles) {
+    const { clearanceMultiplier, hepaticFactor, renalFactor } = computeOrganAdjustments(profile.organProfiles);
+    if (Math.abs(clearanceMultiplier - 1.0) > 1e-4) {
+      CL *= clearanceMultiplier;
+      warnings.push(
+        `Clearance scaled by ${(clearanceMultiplier * 100).toFixed(0)}% based on organ profiles (hepatic: ${(hepaticFactor * 100).toFixed(0)}%, renal: ${(renalFactor * 100).toFixed(0)}%).`
+      );
+    }
+  }
+
   const ke = CL / V; // 1/h
 
   // ---- integration --------------------------------------------------------
@@ -107,9 +120,8 @@ export function simulate(input: SimInput): SimResult {
     throw new Error('simulate: tlag_h must be a finite number >= 0');
   }
   const sorted: DoseEvent[] = [...doses].sort((a, b) => a.timeH - b.timeH);
-  // A dose reaches the gut at (dose time + lag). Doses whose delayed peak still
-  // ... outside the window are dropped with a warning rather than throwing:
-  // shrinking the window in the UI used to surface "internal error" verbatim.
+  // A dose reaches the gut at (dose time + lag). Doses whose delayed arrival is
+  // outside the window are dropped with a warning rather than throwing.
   const applicable = sorted.filter((d) => d.timeH + lag <= tEndH + 1e-12);
   for (const d of sorted.slice(applicable.length)) {
     warnings.push(
@@ -204,7 +216,7 @@ export function simulate(input: SimInput): SimResult {
     }
   }
 
-  return {
+  const result: SimResult = {
     tH: tOut,
     gutMg: gutOut,
     bodyMg: bodyOut,
@@ -215,4 +227,11 @@ export function simulate(input: SimInput): SimResult {
     timeToClearH: timeToClear,
     warnings,
   };
+
+  // Synthetic teaching model: decide which organ fails and whether the model
+  // dies. Attaching this here keeps the death state and the curves derived
+  // from exactly the same inputs.
+  result.toxicity = assessToxicity(input, result);
+
+  return result;
 }

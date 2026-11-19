@@ -30,6 +30,11 @@ export type MedicationRun = {
   name: string;
   color: string;
   result: SimResult;
+  /**
+   * The cited-parameter run, kept beside a what-if run. Present only when the
+   * visitor has selected a clearance scenario; the baseline is never replaced.
+   */
+  baseline?: SimResult;
 };
 
 /** The caption every multi-drug surface carries. */

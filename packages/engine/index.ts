@@ -3,3 +3,6 @@ export * from './simulate';
 export * from './closedFormSingleDose';
 export * from './buildReport';
 export * from './lookupInteraction';
+export * from './organProfiles';
+export * from './toxicity';
+
